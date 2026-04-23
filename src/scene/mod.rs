@@ -897,28 +897,23 @@ impl Scene {
             Some(h) => h,
             None => return,
         };
-        // Convert screen pixels → paper-space delta using the camera.
-        let cam = self.camera.borrow();
-        let paper_delta = cam.screen_delta_to_world(screen_dx, screen_dy, bounds);
-        drop(cam);
+        // Use the viewport's own camera so that the pan axes match the 3-D view
+        // orientation (important for tilted/rotated MSPACE views).
+        // camera_for_viewport already encodes the correct distance/scale via view_height,
+        // so no additional scale division is needed.
+        let vp_cam = match self.camera_for_viewport(vp_handle) {
+            Some(c) => c,
+            None => return,
+        };
+        let model_delta = vp_cam.screen_delta_to_world(screen_dx, screen_dy, bounds);
 
         if let Some(acadrust::EntityType::Viewport(vp)) =
             self.document.get_entity_mut(vp_handle)
         {
             if vp.status.locked { return; }
-            let scale = if vp.custom_scale.abs() > 1e-9 {
-                vp.custom_scale
-            } else if vp.view_height.abs() > 1e-9 {
-                vp.height / vp.view_height
-            } else {
-                1.0
-            };
-            if scale.abs() < 1e-12 { return; }
-            // screen_delta_to_world returns the same delta that cam.pan() ADDS to its
-            // target, so we add it here too (dividing by viewport scale to convert from
-            // paper-space to model-space).  Using -= would invert the drag direction.
-            vp.view_target.x += (paper_delta.x / scale as f32) as f64;
-            vp.view_target.y += (paper_delta.y / scale as f32) as f64;
+            vp.view_target.x += model_delta.x as f64;
+            vp.view_target.y += model_delta.y as f64;
+            vp.view_target.z += model_delta.z as f64;
         }
     }
 
@@ -988,7 +983,10 @@ impl Scene {
             None => return,
         };
         cam.orbit(delta_x, delta_y);
-        // Write the new view direction back to the viewport entity.
+        // yaw_pitch_to_quat(y,p)*Z = (cos(p)*sin(y), -cos(p)*cos(y), sin(p))
+        // but view_direction convention (matching snap_active_viewport_to_angles) is
+        //   (cos(p)*sin(y), +cos(p)*cos(y), sin(p))  ← Y has opposite sign.
+        // Negate Y when writing back so camera_for_viewport round-trips correctly.
         let eye = cam.rotation * glam::Vec3::Z;
         if let Some(acadrust::EntityType::Viewport(vp)) =
             self.document.get_entity_mut(vp_handle)
@@ -997,7 +995,7 @@ impl Scene {
                 return;
             }
             vp.view_direction.x = eye.x as f64;
-            vp.view_direction.y = eye.y as f64;
+            vp.view_direction.y = -eye.y as f64;
             vp.view_direction.z = eye.z as f64;
         }
     }
