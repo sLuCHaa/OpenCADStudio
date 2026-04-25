@@ -47,6 +47,14 @@ use iced::time::Duration;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+/// Global counter so every Scene and every geometry mutation gets a
+/// process-wide unique epoch. This prevents two different tabs (Scenes)
+/// from ever sharing the same epoch value, which would cause the shared
+/// GPU Pipeline to skip re-uploading geometry when switching tabs.
+static GEOMETRY_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 pub struct Scene {
     pub camera: Rc<RefCell<Camera>>,
@@ -60,6 +68,14 @@ pub struct Scene {
     /// Committed-segment wire drawn during multi-point commands (normal colour).
     pub interim_wire: Option<WireModel>,
     pub camera_generation: u64,
+    /// Incremented whenever geometry-affecting state changes (entities, selection,
+    /// preview wires, layer visibility, layout). The GPU pipeline uses this to
+    /// skip re-uploading unchanged geometry buffers every frame.
+    pub geometry_epoch: u64,
+    /// Cached tessellation of all visible entity wires for the current layout.
+    /// Keyed by `geometry_epoch`; invalidated automatically when the epoch changes.
+    /// Uses `Arc` so `build_primitive()` avoids a full Vec clone during navigation.
+    wire_cache: RefCell<Option<(u64, Arc<Vec<WireModel>>)>>,
     /// Active layout name — "Model" or a paper space layout name.
     pub current_layout: String,
     /// GPU render data for hatch fills, keyed by the DXF entity Handle.
@@ -89,6 +105,8 @@ impl Scene {
             preview_wires: vec![],
             interim_wire: None,
             camera_generation: 0,
+            geometry_epoch: GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed),
+            wire_cache: RefCell::new(None),
             current_layout: "Model".to_string(),
             hatches: HashMap::new(),
             meshes: HashMap::new(),
@@ -97,6 +115,10 @@ impl Scene {
             bg_color: [0.11, 0.11, 0.11, 1.0],
             paper_bg_color: [1.0, 1.0, 1.0, 1.0],
         }
+    }
+
+    pub fn bump_geometry(&mut self) {
+        self.geometry_epoch = GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Public accessor for the block-record handle of the current layout.
@@ -343,14 +365,31 @@ impl Scene {
             .collect()
     }
 
-    /// Build WireModels from all document entities + optional preview wire.
-    pub fn entity_wires(&self) -> Vec<WireModel> {
+    /// Build WireModels from all document entities for the current layout.
+    /// Returns a shared `Arc` so `build_primitive()` can skip the clone during
+    /// navigation frames where no preview wires are active.
+    pub(super) fn entity_wires_arc(&self) -> Arc<Vec<WireModel>> {
+        {
+            let cache = self.wire_cache.borrow();
+            if let Some((cached_epoch, ref arc)) = *cache {
+                if cached_epoch == self.geometry_epoch {
+                    return Arc::clone(arc);
+                }
+            }
+        }
         let layout_block = self.current_layout_block_handle();
-        let mut wires: Vec<WireModel> = self.wires_for_block(layout_block);
+        let mut wires = self.wires_for_block(layout_block);
         if self.current_layout != "Model" {
             wires.extend(self.viewport_content_wires(layout_block, None, None));
         }
-        wires
+        let arc = Arc::new(wires);
+        *self.wire_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        arc
+    }
+
+    /// Build WireModels from all document entities + optional preview wire.
+    pub fn entity_wires(&self) -> Vec<WireModel> {
+        (*self.entity_wires_arc()).clone()
     }
 
     /// Wires that should participate in hit-testing, snapping, and selection.
@@ -1126,6 +1165,7 @@ impl Scene {
             self.current_layout = "Model".to_string();
         }
 
+        self.bump_geometry();
         true
     }
 
@@ -1224,6 +1264,7 @@ impl Scene {
             if let Some(model) = mesh_seed {
                 self.meshes.insert(handle, model);
             }
+            self.bump_geometry();
         }
         handle
     }
@@ -1646,6 +1687,7 @@ impl Scene {
                 self.images.insert(handle, model);
             }
         }
+        self.bump_geometry();
     }
 
     pub fn populate_hatches_from_document(&mut self) {
@@ -1677,6 +1719,7 @@ impl Scene {
                 self.hatches.insert(handle, m);
             }
         }
+        self.bump_geometry();
     }
 
     /// Tessellate all `Solid3D` entities in the current document into
@@ -1712,6 +1755,7 @@ impl Scene {
                 self.meshes.insert(handle, m);
             }
         }
+        self.bump_geometry();
     }
 
     /// Rebuild hatch / image / mesh caches after the document is modified
@@ -1783,17 +1827,20 @@ impl Scene {
         self.meshes = HashMap::new();
         *self.camera.borrow_mut() = Camera::default();
         self.camera_generation += 1;
+        self.bump_geometry();
     }
 
     // ── Preview wire ──────────────────────────────────────────────────────
 
     pub fn set_preview_wires(&mut self, wires: Vec<WireModel>) {
         self.preview_wires = wires;
+        self.bump_geometry();
     }
 
     pub fn clear_preview_wire(&mut self) {
         self.preview_wires = vec![];
         self.interim_wire = None;
+        self.bump_geometry();
     }
 
     pub fn wire_models_for(&self, handles: &[acadrust::Handle]) -> Vec<WireModel> {
@@ -1820,6 +1867,7 @@ impl Scene {
 
     pub fn set_interim_wire(&mut self, w: WireModel) {
         self.interim_wire = Some(w);
+        self.bump_geometry();
     }
 
     // ── Selection ─────────────────────────────────────────────────────────
@@ -1829,10 +1877,12 @@ impl Scene {
             self.selected.clear();
         }
         self.selected.insert(handle);
+        self.bump_geometry();
     }
 
     pub fn deselect_all(&mut self) {
         self.selected.clear();
+        self.bump_geometry();
     }
 
     pub fn selected_entities(&self) -> Vec<(Handle, &EntityType)> {
@@ -1873,6 +1923,7 @@ impl Scene {
             }
             self.document.objects.remove(gh);
         }
+        self.bump_geometry();
     }
 
     // ── Group helpers ──────────────────────────────────────────────────────
@@ -1955,6 +2006,7 @@ impl Scene {
         for h in to_add {
             self.selected.insert(h);
         }
+        self.bump_geometry();
     }
 
     // ── Layer helpers ──────────────────────────────────────────────────────
@@ -1963,6 +2015,7 @@ impl Scene {
         if let Some(layer) = self.document.layers.get_mut(name) {
             layer.flags.off = !layer.flags.off;
         }
+        self.bump_geometry();
     }
 
     pub fn toggle_layer_lock(&mut self, name: &str) {
@@ -1990,6 +2043,7 @@ impl Scene {
                 }
             }
         }
+        self.bump_geometry();
     }
 
     pub fn copy_entities(&mut self, handles: &[Handle], t: &EntityTransform) -> Vec<Handle> {
@@ -2015,6 +2069,7 @@ impl Scene {
             }
             new_handles.push(h);
         }
+        self.bump_geometry();
         new_handles
     }
 
@@ -2040,6 +2095,7 @@ impl Scene {
             }
             _ => {}
         }
+        self.bump_geometry();
     }
 
     // ── Hit-test convenience: wire name → Handle ──────────────────────────

@@ -9,6 +9,8 @@ use iced::mouse;
 use iced::widget::shader::{self, Viewport};
 use iced::{Rectangle, Size};
 
+use std::sync::Arc;
+
 use super::pipeline::viewcube::{hover_id, VIEWCUBE_PX};
 use super::pipeline::Pipeline;
 use super::tessellate;
@@ -75,7 +77,7 @@ pub struct CameraState {
 
 #[derive(Debug)]
 pub struct Primitive {
-    pub(super) wires: Vec<WireModel>,
+    pub(super) wires: Arc<Vec<WireModel>>,
     pub(super) hatches: Vec<HatchModel>,
     /// Wipeout fills — rendered in a separate pass AFTER wires.
     pub(super) wipeout_hatches: Vec<HatchModel>,
@@ -89,6 +91,7 @@ pub struct Primitive {
     /// Background color used to clear the MSAA buffer at the start of each frame.
     pub(super) bg_color: [f32; 4],
     pub(super) show_viewcube: bool,
+    pub(super) geometry_epoch: u64,
 }
 
 // ── shader::Primitive impl ────────────────────────────────────────────────
@@ -116,11 +119,14 @@ impl shader::Primitive for Primitive {
         pipeline.ensure_depth_texture(device, clip_size);
         pipeline.viewcube.ensure_depth_texture(device, full_size);
         pipeline.upload_uniforms(queue, &self.uniforms);
-        pipeline.upload_hatches(device, &self.hatches);
-        pipeline.upload_wipeouts(device, &self.wipeout_hatches);
-        pipeline.upload_images(device, queue, &self.images);
-        pipeline.upload_meshes(device, &self.meshes);
-        pipeline.upload_wires(device, &self.wires);
+        if self.geometry_epoch != pipeline.cached_epoch {
+            pipeline.upload_hatches(device, &self.hatches);
+            pipeline.upload_wipeouts(device, &self.wipeout_hatches);
+            pipeline.upload_images(device, queue, &self.images);
+            pipeline.upload_meshes(device, &self.meshes);
+            pipeline.upload_wires(device, &self.wires[..]);
+            pipeline.cached_epoch = self.geometry_epoch;
+        }
         if self.show_viewcube {
             pipeline.viewcube.upload(
                 queue,
@@ -226,11 +232,17 @@ impl Scene {
         let cam = self.camera.borrow();
         self.selection.borrow_mut().vp_size = (bounds.width, bounds.height);
 
-        let mut all_wires = self.entity_wires();
-        if let Some(iw) = &self.interim_wire {
-            all_wires.push(iw.clone());
-        }
-        all_wires.extend(self.preview_wires.iter().cloned());
+        let entity_arc = self.entity_wires_arc();
+        let all_wires = if self.interim_wire.is_none() && self.preview_wires.is_empty() {
+            entity_arc
+        } else {
+            let mut v = (*entity_arc).clone();
+            if let Some(iw) = &self.interim_wire {
+                v.push(iw.clone());
+            }
+            v.extend(self.preview_wires.iter().cloned());
+            Arc::new(v)
+        };
 
         let bg_color = if self.current_layout == "Model" {
             self.bg_color
@@ -249,6 +261,7 @@ impl Scene {
             hover_region,
             bg_color,
             show_viewcube,
+            geometry_epoch: self.geometry_epoch,
         }
     }
 
@@ -266,11 +279,17 @@ impl Scene {
             None => return self.build_primitive(hover_region, bounds, false),
         };
 
-        let mut all_wires = self.model_wires_for_viewport(vp_handle);
-        if let Some(iw) = &self.interim_wire {
-            all_wires.push(iw.clone());
-        }
-        all_wires.extend(self.preview_wires.iter().cloned());
+        let base_wires = self.model_wires_for_viewport(vp_handle);
+        let all_wires = if self.interim_wire.is_none() && self.preview_wires.is_empty() {
+            Arc::new(base_wires)
+        } else {
+            let mut v = base_wires;
+            if let Some(iw) = &self.interim_wire {
+                v.push(iw.clone());
+            }
+            v.extend(self.preview_wires.iter().cloned());
+            Arc::new(v)
+        };
 
         Primitive {
             wires: all_wires,
@@ -283,6 +302,7 @@ impl Scene {
             hover_region,
             bg_color: self.bg_color,
             show_viewcube: false,
+            geometry_epoch: self.geometry_epoch,
         }
     }
 

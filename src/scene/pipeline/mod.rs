@@ -52,6 +52,9 @@ pub struct Pipeline {
     gpu_images: Vec<ImageGpu>,
     gpu_meshes: Vec<MeshGpu>,
     pub viewcube: ViewCubePipeline,
+    /// Last geometry epoch for which GPU buffers were uploaded.
+    /// Initialized to u64::MAX so the first frame always uploads.
+    pub cached_epoch: u64,
 }
 
 impl Pipeline {
@@ -476,6 +479,7 @@ impl Pipeline {
             gpu_images: vec![],
             gpu_meshes: vec![],
             viewcube,
+            cached_epoch: u64::MAX,
         }
     }
 

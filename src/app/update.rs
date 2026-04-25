@@ -752,6 +752,7 @@ impl H7CAD {
                     if let Some(dl) = self.tabs[i].scene.document.layers.get_mut(&name) {
                         if frozen { dl.freeze(); } else { dl.thaw(); }
                     }
+                    self.tabs[i].scene.bump_geometry();
                     self.tabs[i].dirty = true;
                 }
                 Task::none()
@@ -788,6 +789,7 @@ impl H7CAD {
                         let vp_info = self.tabs[i].scene.viewport_list();
                         let doc_layers = self.tabs[i].scene.document.layers.clone();
                         self.tabs[i].layers.sync_with_viewports(&doc_layers, vp_info);
+                        self.tabs[i].scene.bump_geometry();
                         self.tabs[i].dirty = true;
                     }
                 }
@@ -2470,6 +2472,7 @@ impl H7CAD {
                     // Switch to Model if active layout was deleted.
                     if self.tabs[i].scene.current_layout == name {
                         self.tabs[i].scene.current_layout = "Model".to_string();
+                        self.tabs[i].scene.bump_geometry();
                     }
                     self.layout_manager_selected = "Model".to_string();
                     self.layout_manager_rename_buf = String::new();
@@ -2516,6 +2519,7 @@ impl H7CAD {
                 let i = self.active_tab;
                 let name = self.layout_manager_selected.clone();
                 self.tabs[i].scene.current_layout = name.clone();
+                self.tabs[i].scene.bump_geometry();
                 self.command_line.push_output(&format!("Switched to layout '{name}'."));
                 Task::none()
             }
