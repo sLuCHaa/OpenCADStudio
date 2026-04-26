@@ -180,7 +180,7 @@ pub(super) fn linetype_name_for<'a>(document: &'a CadDocument, e: &'a EntityType
 }
 
 /// Returns `(entity_color, pattern_length, pattern, line_weight_px, aci)` for
-/// an entity, resolving ByLayer/ByBlock colour and linetype from the document.
+/// an entity, resolving ByLayer color and linetype from the document.
 pub(super) fn render_style_for(
     document: &CadDocument,
     e: &EntityType,
@@ -228,6 +228,41 @@ pub(super) fn render_style_for(
     };
 
     (entity_color, pattern_length, pattern, line_weight_px, aci)
+}
+
+/// Like `render_style_for` but resolves ByBlock properties by inheriting from
+/// the INSERT entity's already-resolved style. Call this for exploded block
+/// sub-entities so that ByBlock color/linetype/lineweight propagate correctly.
+pub(super) fn render_style_for_block_sub(
+    document: &CadDocument,
+    e: &EntityType,
+    insert_color: [f32; 4],
+    insert_pat_len: f32,
+    insert_pat: [f32; 8],
+    insert_lw_px: f32,
+) -> ([f32; 4], f32, [f32; 8], f32, u8) {
+    let (color, pat_len, pat, lw_px, aci) = render_style_for(document, e);
+    let common = e.common();
+
+    let final_color = if common.color == AcadColor::ByBlock {
+        insert_color
+    } else {
+        color
+    };
+
+    let (final_pat_len, final_pat) = if common.linetype.eq_ignore_ascii_case("byblock") {
+        (insert_pat_len, insert_pat)
+    } else {
+        (pat_len, pat)
+    };
+
+    let final_lw = if matches!(common.line_weight, LineWeight::ByBlock) {
+        insert_lw_px
+    } else {
+        lw_px
+    };
+
+    (final_color, final_pat_len, final_pat, final_lw, aci)
 }
 
 // ── Primitive builder helpers (called by ViewportPane's shader::Program impl) ──

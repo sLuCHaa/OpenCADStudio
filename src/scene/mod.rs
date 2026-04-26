@@ -2630,6 +2630,9 @@ fn tessellate_entity(
 
     if let EntityType::Insert(ins) = e {
         let is_mirrored = ins.x_scale() * ins.y_scale() < 0.0;
+        // Resolve the INSERT's own style so ByBlock sub-entities can inherit it.
+        let (ins_color, ins_pat_len, ins_pat, ins_lw_px, _) =
+            render::render_style_for(document, e);
         return ins
             .explode_from_document(document)
             .iter()
@@ -2638,7 +2641,10 @@ fn tessellate_entity(
             .map(|sub| crate::modules::home::modify::explode::fix_mirrored_arc(sub, is_mirrored))
             .flat_map(|sub| {
                 let (sub_color, sub_pattern_length, sub_pattern, sub_line_weight_px, sub_aci) =
-                    render::render_style_for(document, &sub);
+                    render::render_style_for_block_sub(
+                        document, &sub,
+                        ins_color, ins_pat_len, ins_pat, ins_lw_px,
+                    );
                 let sub_aabb = entity_aabb(&sub);
                 let mut wire = tessellate::tessellate(
                     document,
