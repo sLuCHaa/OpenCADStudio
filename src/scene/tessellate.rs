@@ -228,7 +228,19 @@ pub fn tessellate_dimension(
         entity_color
     };
     let name = handle.value().to_string();
-    let points = dimension_geometry(dim);
+    let style_name = &dim.base().style_name;
+    let arrow_size = document
+        .dim_styles
+        .iter()
+        .find(|s| s.name.eq_ignore_ascii_case(style_name)
+            || (style_name.trim().is_empty() && s.name.eq_ignore_ascii_case("Standard")))
+        .map(|s| {
+            let scale = if s.dimscale > 1e-6 { s.dimscale } else { 1.0 };
+            (s.dimasz * scale) as f32
+        })
+        .unwrap_or(0.12)
+        .max(0.001);
+    let points = dimension_geometry(dim, arrow_size);
     let key_vertices = points
         .iter()
         .copied()
@@ -671,7 +683,7 @@ fn solid_wire_fallback(entity: &EntityType) -> Vec<[f32; 3]> {
     pts
 }
 
-fn dimension_geometry(dim: &Dimension) -> Vec<[f32; 3]> {
+fn dimension_geometry(dim: &Dimension, arrow_size: f32) -> Vec<[f32; 3]> {
     let mut points = Vec::new();
     match dim {
         Dimension::Aligned(d) => {
@@ -679,14 +691,14 @@ fn dimension_geometry(dim: &Dimension) -> Vec<[f32; 3]> {
             let second = vec3(d.second_point);
             let def = vec3(d.definition_point);
             let axis = normalized_or(second - first, Vec3::X);
-            append_linear_dimension(&mut points, first, second, def, axis);
+            append_linear_dimension(&mut points, first, second, def, axis, arrow_size);
         }
         Dimension::Linear(d) => {
             let first = vec3(d.first_point);
             let second = vec3(d.second_point);
             let def = vec3(d.definition_point);
             let axis = Vec3::new(d.rotation.cos() as f32, d.rotation.sin() as f32, 0.0);
-            append_linear_dimension(&mut points, first, second, def, normalized_or(axis, Vec3::X));
+            append_linear_dimension(&mut points, first, second, def, normalized_or(axis, Vec3::X), arrow_size);
         }
         Dimension::Radius(d) => {
             let center = vec3(d.angle_vertex);
@@ -694,14 +706,14 @@ fn dimension_geometry(dim: &Dimension) -> Vec<[f32; 3]> {
             let text = dimension_text_position(dim);
             add_segment(&mut points, center, point);
             add_segment(&mut points, point, text);
-            append_arrow(&mut points, point, normalized_or(center - point, Vec3::X), 0.12);
+            append_arrow(&mut points, point, normalized_or(center - point, Vec3::X), arrow_size);
         }
         Dimension::Diameter(d) => {
             let p1 = vec3(d.angle_vertex);
             let p2 = vec3(d.definition_point);
             add_segment(&mut points, p1, p2);
-            append_arrow(&mut points, p1, normalized_or(p2 - p1, Vec3::X), 0.12);
-            append_arrow(&mut points, p2, normalized_or(p1 - p2, Vec3::X), 0.12);
+            append_arrow(&mut points, p1, normalized_or(p2 - p1, Vec3::X), arrow_size);
+            append_arrow(&mut points, p2, normalized_or(p1 - p2, Vec3::X), arrow_size);
         }
         Dimension::Angular2Ln(d) => {
             append_angular_dimension(
@@ -710,6 +722,7 @@ fn dimension_geometry(dim: &Dimension) -> Vec<[f32; 3]> {
                 vec3(d.first_point),
                 vec3(d.second_point),
                 vec3(d.dimension_arc),
+                arrow_size,
             );
         }
         Dimension::Angular3Pt(d) => {
@@ -719,6 +732,7 @@ fn dimension_geometry(dim: &Dimension) -> Vec<[f32; 3]> {
                 vec3(d.first_point),
                 vec3(d.second_point),
                 vec3(d.definition_point),
+                arrow_size,
             );
         }
         Dimension::Ordinate(d) => {
@@ -735,6 +749,7 @@ fn append_linear_dimension(
     second: Vec3,
     def: Vec3,
     axis: Vec3,
+    arrow_size: f32,
 ) {
     let perp = Vec3::new(-axis.y, axis.x, 0.0);
     let dim_line_pos = def.dot(perp);
@@ -743,8 +758,8 @@ fn append_linear_dimension(
     add_segment(points, first, d1);
     add_segment(points, second, d2);
     add_segment(points, d1, d2);
-    append_arrow(points, d1, normalized_or(d2 - d1, axis), 0.12);
-    append_arrow(points, d2, normalized_or(d1 - d2, -axis), 0.12);
+    append_arrow(points, d1, normalized_or(d2 - d1, axis), arrow_size);
+    append_arrow(points, d2, normalized_or(d1 - d2, -axis), arrow_size);
 }
 
 fn append_angular_dimension(
@@ -753,6 +768,7 @@ fn append_angular_dimension(
     first: Vec3,
     second: Vec3,
     arc_point: Vec3,
+    arrow_size: f32,
 ) {
     add_segment(points, vertex, first);
     add_segment(points, vertex, second);
@@ -787,14 +803,14 @@ fn append_angular_dimension(
             points,
             arc_pts[0],
             normalized_or(arc_pts[1] - arc_pts[0], Vec3::X),
-            0.1,
+            arrow_size,
         );
         let n = arc_pts.len();
         append_arrow(
             points,
             arc_pts[n - 1],
             normalized_or(arc_pts[n - 2] - arc_pts[n - 1], Vec3::X),
-            0.1,
+            arrow_size,
         );
     }
 }
