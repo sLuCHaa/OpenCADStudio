@@ -80,6 +80,14 @@ pub struct Scene {
     /// Maps block_handle → (entity_handle.value() → sort_handle.value()).
     /// Replaces the O(objects) linear scan inside `wires_for_block()` with an O(1) lookup.
     sort_cache: RefCell<Option<(u64, HashMap<Handle, HashMap<u64, u64>>)>>,
+    /// Cached hatch fill models, keyed by geometry_epoch.
+    hatch_cache: RefCell<Option<(u64, Arc<Vec<HatchModel>>)>>,
+    /// Cached wipeout fill models, keyed by geometry_epoch.
+    wipeout_cache: RefCell<Option<(u64, Arc<Vec<HatchModel>>)>>,
+    /// Cached image models, keyed by geometry_epoch.
+    image_cache: RefCell<Option<(u64, Arc<Vec<ImageModel>>)>>,
+    /// Cached mesh models, keyed by geometry_epoch.
+    mesh_cache: RefCell<Option<(u64, Arc<Vec<MeshModel>>)>>,
     /// Active layout name — "Model" or a paper space layout name.
     pub current_layout: String,
     /// GPU render data for hatch fills, keyed by the DXF entity Handle.
@@ -112,6 +120,10 @@ impl Scene {
             geometry_epoch: GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed),
             wire_cache: RefCell::new(None),
             sort_cache: RefCell::new(None),
+            hatch_cache: RefCell::new(None),
+            wipeout_cache: RefCell::new(None),
+            image_cache: RefCell::new(None),
+            mesh_cache: RefCell::new(None),
             current_layout: "Model".to_string(),
             hatches: HashMap::new(),
             meshes: HashMap::new(),
@@ -395,6 +407,62 @@ impl Scene {
     /// Build WireModels from all document entities + optional preview wire.
     pub fn entity_wires(&self) -> Vec<WireModel> {
         (*self.entity_wires_arc()).clone()
+    }
+
+    pub(super) fn hatch_models_arc(&self) -> Arc<Vec<HatchModel>> {
+        {
+            let cache = self.hatch_cache.borrow();
+            if let Some((cached_epoch, ref arc)) = *cache {
+                if cached_epoch == self.geometry_epoch {
+                    return Arc::clone(arc);
+                }
+            }
+        }
+        let arc = Arc::new(self.synced_hatch_models());
+        *self.hatch_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        arc
+    }
+
+    pub(super) fn wipeout_models_arc(&self) -> Arc<Vec<HatchModel>> {
+        {
+            let cache = self.wipeout_cache.borrow();
+            if let Some((cached_epoch, ref arc)) = *cache {
+                if cached_epoch == self.geometry_epoch {
+                    return Arc::clone(arc);
+                }
+            }
+        }
+        let arc = Arc::new(self.wipeout_models());
+        *self.wipeout_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        arc
+    }
+
+    pub(super) fn images_arc(&self) -> Arc<Vec<ImageModel>> {
+        {
+            let cache = self.image_cache.borrow();
+            if let Some((cached_epoch, ref arc)) = *cache {
+                if cached_epoch == self.geometry_epoch {
+                    return Arc::clone(arc);
+                }
+            }
+        }
+        let arc = Arc::new(self.images.values().cloned().collect());
+        *self.image_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        arc
+    }
+
+    pub(super) fn meshes_arc(&self) -> Arc<Vec<MeshModel>> {
+        {
+            let cache = self.mesh_cache.borrow();
+            if let Some((cached_epoch, ref arc)) = *cache {
+                if cached_epoch == self.geometry_epoch {
+                    return Arc::clone(arc);
+                }
+            }
+        }
+        let arc = Arc::new(self.meshes.values().cloned().collect());
+        *self.mesh_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        arc
     }
 
     /// Wires that should participate in hit-testing, snapping, and selection.

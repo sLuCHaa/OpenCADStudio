@@ -4,13 +4,15 @@
 // from the RasterImage entity's insertion point, u/v vectors, and pixel size.
 
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct ImageModel {
     /// Original file path (used for reload / display in properties).
     pub file_path: String,
-    /// RGBA8 pixel data in row-major order.
-    pub pixels: Vec<u8>,
+    /// RGBA8 pixel data in row-major order. Arc-wrapped so cloning ImageModel
+    /// is O(1) — the pixel bytes are shared, not copied.
+    pub pixels: Arc<Vec<u8>>,
     pub width: u32,
     pub height: u32,
     /// Opacity: 1.0 = opaque, 0.0 = transparent.
@@ -47,7 +49,7 @@ impl ImageModel {
         let opacity = 1.0 - img.fade as f32 / 100.0;
 
         let (pixels, width, height) = load_pixels(&img.file_path)?;
-        Some(Self { file_path: img.file_path.clone(), pixels, width, height, opacity, corners })
+        Some(Self { file_path: img.file_path.clone(), pixels: Arc::new(pixels), width, height, opacity, corners })
     }
 }
 

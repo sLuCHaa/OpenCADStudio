@@ -87,7 +87,7 @@ impl ImageGpu {
         });
         queue.write_texture(
             texture.as_image_copy(),
-            &model.pixels,
+            &model.pixels[..],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * model.width),

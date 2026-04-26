@@ -78,11 +78,11 @@ pub struct CameraState {
 #[derive(Debug)]
 pub struct Primitive {
     pub(super) wires: Arc<Vec<WireModel>>,
-    pub(super) hatches: Vec<HatchModel>,
+    pub(super) hatches: Arc<Vec<HatchModel>>,
     /// Wipeout fills — rendered in a separate pass AFTER wires.
-    pub(super) wipeout_hatches: Vec<HatchModel>,
-    pub(super) images: Vec<ImageModel>,
-    pub(super) meshes: Vec<MeshModel>,
+    pub(super) wipeout_hatches: Arc<Vec<HatchModel>>,
+    pub(super) images: Arc<Vec<ImageModel>>,
+    pub(super) meshes: Arc<Vec<MeshModel>>,
     pub(super) uniforms: Uniforms,
     /// Camera rotation matrix derived from the quaternion.
     /// Used by the ViewCube pipeline — no gimbal lock.
@@ -120,10 +120,10 @@ impl shader::Primitive for Primitive {
         pipeline.viewcube.ensure_depth_texture(device, full_size);
         pipeline.upload_uniforms(queue, &self.uniforms);
         if self.geometry_epoch != pipeline.cached_epoch {
-            pipeline.upload_hatches(device, &self.hatches);
-            pipeline.upload_wipeouts(device, &self.wipeout_hatches);
-            pipeline.upload_images(device, queue, &self.images);
-            pipeline.upload_meshes(device, &self.meshes);
+            pipeline.upload_hatches(device, &self.hatches[..]);
+            pipeline.upload_wipeouts(device, &self.wipeout_hatches[..]);
+            pipeline.upload_images(device, queue, &self.images[..]);
+            pipeline.upload_meshes(device, &self.meshes[..]);
             pipeline.upload_wires(device, &self.wires[..]);
             pipeline.cached_epoch = self.geometry_epoch;
         }
@@ -264,10 +264,10 @@ impl Scene {
 
         Primitive {
             wires: all_wires,
-            hatches: self.synced_hatch_models(),
-            wipeout_hatches: self.wipeout_models(),
-            images: self.images.values().cloned().collect(),
-            meshes: self.meshes.values().cloned().collect(),
+            hatches: self.hatch_models_arc(),
+            wipeout_hatches: self.wipeout_models_arc(),
+            images: self.images_arc(),
+            meshes: self.meshes_arc(),
             uniforms: Uniforms::new(&cam, bounds),
             cam_rotation: cam.view_rotation_mat(),
             hover_region,
@@ -305,10 +305,10 @@ impl Scene {
 
         Primitive {
             wires: all_wires,
-            hatches: self.synced_hatch_models(),
-            wipeout_hatches: self.wipeout_models(),
-            images: self.images.values().cloned().collect(),
-            meshes: self.meshes.values().cloned().collect(),
+            hatches: self.hatch_models_arc(),
+            wipeout_hatches: self.wipeout_models_arc(),
+            images: self.images_arc(),
+            meshes: self.meshes_arc(),
             uniforms: Uniforms::new(&cam, bounds),
             cam_rotation: cam.view_rotation_mat(),
             hover_region,
