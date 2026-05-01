@@ -2380,6 +2380,197 @@ impl Scene {
         self.camera_generation += 1;
     }
 
+    /// Set the model-space camera from the VPORT table's *Active entry.
+    /// Returns true if the entry was found and the camera was set.
+    fn apply_active_vport_camera(&mut self) -> bool {
+        let vp = match self.document.vports.iter().find(|v| v.name == "*Active") {
+            Some(v) => v.clone(),
+            None => return false,
+        };
+
+        if vp.view_height.abs() < 1e-9 {
+            return false;
+        }
+
+        let vd = glam::Vec3::new(
+            vp.view_direction.x as f32,
+            vp.view_direction.y as f32,
+            vp.view_direction.z as f32,
+        )
+        .normalize_or(glam::Vec3::Z);
+
+        let pitch = vd.z.clamp(-0.999, 0.999).asin();
+        let yaw = vd.x.atan2(vd.y);
+        let rotation = camera::yaw_pitch_to_quat(yaw, pitch);
+        let view_right = rotation * glam::Vec3::X;
+        let view_up    = rotation * glam::Vec3::Y;
+
+        // view_target is WCS; wire-space subtracts world_offset.
+        let base = glam::Vec3::new(
+            (vp.view_target.x - self.world_offset[0]) as f32,
+            (vp.view_target.y - self.world_offset[1]) as f32,
+            (vp.view_target.z - self.world_offset[2]) as f32,
+        );
+        let target = base
+            + view_right * vp.view_center.x as f32
+            + view_up    * vp.view_center.y as f32;
+
+        let fov_y = 45.0_f32.to_radians();
+        let distance = ((vp.view_height as f32 / 2.0) / (fov_y * 0.5).tan()).max(0.001);
+
+        let mut cam = self.camera.borrow_mut();
+        cam.target     = target;
+        cam.rotation   = rotation;
+        cam.distance   = distance;
+        cam.yaw        = yaw;
+        cam.pitch      = pitch;
+        cam.fov_y      = fov_y;
+        cam.projection = camera::Projection::Orthographic;
+        drop(cam);
+
+        self.camera_generation += 1;
+        true
+    }
+
+    /// Set the paper-space camera from the sheet viewport's stored view.
+    /// Returns true if a valid sheet viewport was found and the camera was set.
+    fn apply_sheet_viewport_camera(&mut self) -> bool {
+        let layout_block = self.current_layout_block_handle();
+        if layout_block.is_null() {
+            return false;
+        }
+
+        let sheet_vp = self.document.entities()
+            .filter_map(|e| if let EntityType::Viewport(vp) = e { Some(vp) } else { None })
+            .find(|vp| {
+                vp.common.owner_handle == layout_block && !Self::is_content_viewport(vp)
+            });
+
+        let vp = match sheet_vp {
+            Some(v) => v,
+            None => return false,
+        };
+
+        if vp.view_height.abs() < 1e-9 {
+            return false;
+        }
+
+        let vd = glam::Vec3::new(
+            vp.view_direction.x as f32,
+            vp.view_direction.y as f32,
+            vp.view_direction.z as f32,
+        )
+        .normalize_or(glam::Vec3::Z);
+
+        let pitch = vd.z.clamp(-0.999, 0.999).asin();
+        let yaw = vd.x.atan2(vd.y);
+        let rotation = camera::yaw_pitch_to_quat(yaw, pitch);
+        let view_right = rotation * glam::Vec3::X;
+        let view_up    = rotation * glam::Vec3::Y;
+
+        // Paper-space entities have no world_offset applied, so target is raw.
+        let base = glam::Vec3::new(
+            vp.view_target.x as f32,
+            vp.view_target.y as f32,
+            vp.view_target.z as f32,
+        );
+        let target = base
+            + view_right * vp.view_center.x as f32
+            + view_up    * vp.view_center.y as f32;
+
+        let fov_y = 45.0_f32.to_radians();
+        let distance = ((vp.view_height as f32 / 2.0) / (fov_y * 0.5).tan()).max(0.001);
+
+        let mut cam = self.camera.borrow_mut();
+        cam.target     = target;
+        cam.rotation   = rotation;
+        cam.distance   = distance;
+        cam.yaw        = yaw;
+        cam.pitch      = pitch;
+        cam.fov_y      = fov_y;
+        cam.projection = camera::Projection::Orthographic;
+        drop(cam);
+
+        self.camera_generation += 1;
+        true
+    }
+
+    /// Write the current camera back into the document (VPort or sheet viewport)
+    /// so it is saved with the file. Returns true if the document was modified.
+    pub fn sync_camera_to_document(&mut self) -> bool {
+        let cam = self.camera.borrow().clone();
+        let view_dir = cam.rotation * glam::Vec3::Z;
+        let view_height = cam.ortho_size() * 2.0;
+
+        if self.current_layout == "Model" {
+            // Write back to the *Active VPort entry.
+            let vp = match self.document.vports.iter_mut().find(|v| v.name == "*Active") {
+                Some(v) => v,
+                None => return false,
+            };
+            // cam.target is in wire-space; convert back to raw model WCS.
+            vp.view_target = acadrust::types::Vector3 {
+                x: (cam.target.x as f64) + self.world_offset[0],
+                y: (cam.target.y as f64) + self.world_offset[1],
+                z: (cam.target.z as f64) + self.world_offset[2],
+            };
+            vp.view_center  = acadrust::types::Vector2::ZERO;
+            vp.view_direction = acadrust::types::Vector3 {
+                x: view_dir.x as f64,
+                y: view_dir.y as f64,
+                z: view_dir.z as f64,
+            };
+            vp.view_height = view_height as f64;
+            true
+        } else {
+            // Write back to the sheet viewport entity.
+            let layout_block = self.current_layout_block_handle();
+            if layout_block.is_null() { return false; }
+
+            let sheet_handle = self.document.entities()
+                .filter_map(|e| if let EntityType::Viewport(vp) = e { Some(vp) } else { None })
+                .find(|vp| vp.common.owner_handle == layout_block && !Self::is_content_viewport(vp))
+                .map(|vp| vp.common.handle);
+
+            let handle = match sheet_handle {
+                Some(h) => h,
+                None => return false,
+            };
+
+            if let Some(EntityType::Viewport(vp)) = self.document.get_entity_mut(handle) {
+                // Paper-space entities have no world_offset; target is raw paper coords.
+                vp.view_target = acadrust::types::Vector3 {
+                    x: cam.target.x as f64,
+                    y: cam.target.y as f64,
+                    z: cam.target.z as f64,
+                };
+                vp.view_center  = acadrust::types::Vector3::ZERO;
+                vp.view_direction = acadrust::types::Vector3 {
+                    x: view_dir.x as f64,
+                    y: view_dir.y as f64,
+                    z: view_dir.z as f64,
+                };
+                vp.view_height = view_height as f64;
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Restore the camera from the file's saved view (called once on open).
+    /// Falls back to fit_all() if no saved view is available.
+    pub fn restore_saved_camera(&mut self) {
+        let restored = if self.current_layout == "Model" {
+            self.apply_active_vport_camera()
+        } else {
+            self.apply_sheet_viewport_camera()
+        };
+        if !restored {
+            self.fit_all();
+        }
+    }
+
     pub fn fit_all(&mut self) {
         let wires = self.entity_wires();
         if wires.is_empty() {

@@ -42,6 +42,8 @@ pub(super) struct DocumentTab {
     pub(super) refedit_session: Option<RefEditSession>,
     /// Currently active MLeader style name.
     pub(super) active_mleader_style: String,
+    /// Last camera_generation value written back to the document.
+    pub(super) last_synced_camera_gen: u64,
 }
 
 impl DocumentTab {
@@ -83,6 +85,7 @@ impl DocumentTab {
             paper_bg_color: None,
             refedit_session: None,
             active_mleader_style: "Standard".to_string(),
+            last_synced_camera_gen: 0,
         }
     }
 

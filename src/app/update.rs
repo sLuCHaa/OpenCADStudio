@@ -17,7 +17,19 @@ impl H7CAD {
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Tick(t) => {
-                self.tabs[self.active_tab].scene.update(t - self.start);
+                let i = self.active_tab;
+                self.tabs[i].scene.update(t - self.start);
+
+                // If the camera moved since we last synced, write it back to
+                // the document and mark the file dirty.
+                let gen = self.tabs[i].scene.camera_generation;
+                if gen != self.tabs[i].last_synced_camera_gen {
+                    self.tabs[i].last_synced_camera_gen = gen;
+                    if self.tabs[i].scene.sync_camera_to_document() {
+                        self.tabs[i].dirty = true;
+                    }
+                }
+
                 Task::none()
             }
 
@@ -86,7 +98,8 @@ impl H7CAD {
                 let vp_info = self.tabs[i].scene.viewport_list();
                 self.tabs[i].layers.sync_with_viewports(&doc_layers, vp_info);
                 self.sync_ribbon_layers();
-                self.tabs[i].scene.fit_all();
+                self.tabs[i].scene.restore_saved_camera();
+                self.tabs[i].last_synced_camera_gen = self.tabs[i].scene.camera_generation;
                 self.tabs[i].dirty = false;
                 self.tabs[i].history = super::document::HistoryState::default();
                 self.refresh_selected_grips();
@@ -2249,7 +2262,8 @@ impl H7CAD {
                 self.tabs[i].scene.active_viewport = None;
                 self.tabs[i].scene.current_layout = name;
                 self.tabs[i].scene.deselect_all();
-                self.tabs[i].scene.fit_all();
+                self.tabs[i].scene.restore_saved_camera();
+                self.tabs[i].last_synced_camera_gen = self.tabs[i].scene.camera_generation;
                 if going_to_paper {
                     if let Some(idx) = self.ribbon.layout_module_index() {
                         self.ribbon.select(idx);
