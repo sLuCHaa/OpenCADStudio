@@ -55,7 +55,7 @@ Legend: ✅ Done · ⚠️ Partial · ❌ Not done
 
 | Status | Entity | What works | What's missing |
 |---|---|---|---|
-| ⚠️ | **Viewport** (paper space) | Frame (active=gold, inactive=cyan), CPU projection + Cohen-Sutherland clipping, perspective, layer freeze per-viewport, MSPACE switching, pan/zoom/orbit | GPU scissor rect (pixel-level boundary clip), simultaneous multi-viewport 3D (Iced 0.14 batch issue — `src/scene/viewport_pane.rs:14-18`), stencil masking for overlapping viewports |
+| ⚠️ | **Viewport** (paper space) | Frame (active=gold, inactive=cyan), CPU projection + Cohen-Sutherland clipping, perspective, layer freeze per-viewport, MSPACE switching, pan/zoom/orbit | GPU scissor rect for pixel-level boundary clipping; stencil masking for overlapping viewports |
 
 ---
 
@@ -214,6 +214,6 @@ These are fixed in our post-load `fix_dxf_dimension_rotations()` in `src/io/mod.
 
 ### Remaining gaps by priority
 
-**Medium:** OCS→WCS for Hatch wire outline and MLine/Leader · Viewport GPU scissor + multi-viewport 3D (blocked by Iced 0.14 batch limitation)
+**Medium:** OCS→WCS for Hatch wire outline and MLine/Leader · Viewport GPU scissor rect (pixel-level boundary clipping)
 
 **Low:** LWPolyline plinegen (GPU shader change needed) · Complex linetype text shapes · OLE2Frame improvement · Shape rotation
