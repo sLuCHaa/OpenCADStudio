@@ -625,6 +625,7 @@ fn legacy_geometry(entity: &EntityType, world_offset: [f64; 3]) -> Geometry {
             let elev = (h.elevation - oz) as f32;
             let mut pts: Vec<[f32; 3]> = Vec::new();
             let mut key_verts: Vec<[f32; 3]> = Vec::new();
+            let mut snap_pts: Vec<(Vec3, SnapHint)> = Vec::new();
             for path in &h.paths {
                 for edge in &path.edges {
                     match edge {
@@ -642,10 +643,68 @@ fn legacy_geometry(entity: &EntityType, world_offset: [f64; 3]) -> Geometry {
                         acadrust::entities::BoundaryEdge::Line(ln) => {
                             let p0 = [(ln.start.x - ox) as f32, (ln.start.y - oy) as f32, elev];
                             let p1 = [(ln.end.x - ox) as f32, (ln.end.y - oy) as f32, elev];
+                            if !pts.is_empty() { pts.push([f32::NAN; 3]); }
                             pts.push(p0);
                             pts.push(p1);
                             key_verts.push(p0);
                             key_verts.push(p1);
+                        }
+                        acadrust::entities::BoundaryEdge::CircularArc(arc) => {
+                            let cx = (arc.center.x - ox) as f32;
+                            let cy = (arc.center.y - oy) as f32;
+                            let r = arc.radius as f32;
+                            let sa = (arc.start_angle as f32).to_radians();
+                            let ea = (arc.end_angle as f32).to_radians();
+                            let span = if ea > sa {
+                                ea - sa
+                            } else {
+                                ea - sa + std::f32::consts::TAU
+                            };
+                            let segs = ((span / std::f32::consts::TAU) * 32.0)
+                                .ceil()
+                                .max(4.0) as u32;
+                            if !pts.is_empty() { pts.push([f32::NAN; 3]); }
+                            for i in 0..=segs {
+                                let t = sa + span * (i as f32 / segs as f32);
+                                let p = [cx + r * t.cos(), cy + r * t.sin(), elev];
+                                pts.push(p);
+                                if i == 0 || i == segs { key_verts.push(p); }
+                            }
+                            snap_pts.push((Vec3::new(cx, cy, elev), SnapHint::Center));
+                        }
+                        acadrust::entities::BoundaryEdge::EllipticArc(ell) => {
+                            let cx = (ell.center.x - ox) as f32;
+                            let cy = (ell.center.y - oy) as f32;
+                            let r_maj = ((ell.major_axis_endpoint.x * ell.major_axis_endpoint.x
+                                + ell.major_axis_endpoint.y * ell.major_axis_endpoint.y)
+                                .sqrt()) as f32;
+                            let r_min = r_maj * ell.minor_axis_ratio as f32;
+                            let rot = (ell.major_axis_endpoint.y as f32)
+                                .atan2(ell.major_axis_endpoint.x as f32);
+                            let sa = ell.start_angle as f32;
+                            let ea = ell.end_angle as f32;
+                            let span = if ea > sa {
+                                ea - sa
+                            } else {
+                                ea - sa + std::f32::consts::TAU
+                            };
+                            let segs = ((span / std::f32::consts::TAU) * 32.0)
+                                .ceil()
+                                .max(4.0) as u32;
+                            if !pts.is_empty() { pts.push([f32::NAN; 3]); }
+                            for i in 0..=segs {
+                                let t = sa + span * (i as f32 / segs as f32);
+                                let lx = r_maj * t.cos();
+                                let ly = r_min * t.sin();
+                                let p = [
+                                    cx + lx * rot.cos() - ly * rot.sin(),
+                                    cy + lx * rot.sin() + ly * rot.cos(),
+                                    elev,
+                                ];
+                                pts.push(p);
+                                if i == 0 || i == segs { key_verts.push(p); }
+                            }
+                            snap_pts.push((Vec3::new(cx, cy, elev), SnapHint::Center));
                         }
                         _ => {}
                     }
@@ -654,7 +713,7 @@ fn legacy_geometry(entity: &EntityType, world_offset: [f64; 3]) -> Geometry {
             if pts.is_empty() {
                 pts = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
             }
-            (pts, vec![], vec![], key_verts)
+            (pts, snap_pts, vec![], key_verts)
         }
         EntityType::Ole2Frame(ole) => {
             // OLE objects carry a bounding rectangle in model space.
