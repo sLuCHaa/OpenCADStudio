@@ -1864,27 +1864,28 @@ impl Scene {
                     && self.belongs_to_visible_block(handle, c.owner_handle, layout_block)
             })
             .map(|(&handle, model)| {
-                let mut m = if let Some(EntityType::Hatch(dxf)) = self.document.get_entity(handle) {
-                    let mut m = model.clone();
-                    match &mut m.pattern {
-                        hatch_model::HatchPattern::Pattern(_) => {
-                            m.angle_offset = dxf.pattern_angle as f32;
-                            let anno = if self.current_layout == "Model" {
-                                self.annotation_scale
-                            } else {
-                                1.0
-                            };
-                            m.scale = dxf.pattern_scale as f32 * anno;
+                let entity = self.document.get_entity(handle);
+                let mut m = model.clone();
+                if let Some(e) = entity {
+                    m.color = self.render_style(e).0;
+                    if let EntityType::Hatch(dxf) = e {
+                        match &mut m.pattern {
+                            hatch_model::HatchPattern::Pattern(_) => {
+                                m.angle_offset = dxf.pattern_angle as f32;
+                                let anno = if self.current_layout == "Model" {
+                                    self.annotation_scale
+                                } else {
+                                    1.0
+                                };
+                                m.scale = dxf.pattern_scale as f32 * anno;
+                            }
+                            hatch_model::HatchPattern::Gradient { angle_deg, .. } => {
+                                *angle_deg = dxf.pattern_angle.to_degrees() as f32;
+                            }
+                            hatch_model::HatchPattern::Solid => {}
                         }
-                        hatch_model::HatchPattern::Gradient { angle_deg, .. } => {
-                            *angle_deg = dxf.pattern_angle.to_degrees() as f32;
-                        }
-                        hatch_model::HatchPattern::Solid => {}
                     }
-                    m
-                } else {
-                    model.clone()
-                };
+                }
                 if self.selected.contains(&handle) {
                     m.color = [0.15, 0.55, 1.00, m.color[3]];
                 }
