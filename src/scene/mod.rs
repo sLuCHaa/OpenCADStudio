@@ -1,4 +1,5 @@
 pub mod acad_to_truck;
+pub mod block_cache;
 mod camera;
 pub mod complex_lt;
 pub mod cxf;
@@ -282,6 +283,10 @@ pub struct Scene {
     /// Reverse map: entity_handle → block_record_handle, built from entity_handles lists.
     /// Keyed by geometry_epoch. Eliminates the O(B) fallback scan in belongs_to_visible_block.
     entity_block_map_cache: RefCell<Option<(u64, HashMap<Handle, Handle>)>>,
+    /// Tessellated block definitions in block-local coords, keyed by geometry_epoch.
+    /// Lets Insert tessellation transform-copy cached wires instead of
+    /// clone+explode+re-tessellate per reference.
+    block_defn_cache: RefCell<Option<(u64, Arc<block_cache::BlockCache>)>>,
 }
 
 impl Scene {
@@ -317,7 +322,36 @@ impl Scene {
             annotation_scale: 1.0,
             model_extents_cache: RefCell::new(None),
             entity_block_map_cache: RefCell::new(None),
+            block_defn_cache: RefCell::new(None),
         }
+    }
+
+    /// Get (or build on miss) the block-definition cache for the current epoch.
+    /// Built single-threaded — recursive nested expansion makes parallelization
+    /// fiddly and the cache only rebuilds when geometry actually changes.
+    pub(super) fn block_cache_arc(&self) -> Arc<block_cache::BlockCache> {
+        {
+            let cache = self.block_defn_cache.borrow();
+            if let Some((epoch, ref arc)) = *cache {
+                if epoch == self.geometry_epoch {
+                    return Arc::clone(arc);
+                }
+            }
+        }
+        let bg = if self.current_layout == "Model" {
+            self.bg_color
+        } else {
+            self.paper_bg_color
+        };
+        let anno = if self.current_layout == "Model" {
+            self.annotation_scale
+        } else {
+            1.0
+        };
+        let built = block_cache::BlockCache::build(&self.document, anno, bg);
+        let arc = Arc::new(built);
+        *self.block_defn_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        arc
     }
 
     pub fn bump_geometry(&mut self) {
@@ -917,9 +951,11 @@ impl Scene {
         } else {
             1.0
         };
+        let blk_cache = self.block_cache_arc();
+        let blk_ref: &block_cache::BlockCache = &blk_cache;
         let mut wires: Vec<WireModel> = visible
             .into_par_iter()
-            .flat_map(|e| tessellate_entity(doc, sel, avp, woff, bg, anno, e))
+            .flat_map(|e| tessellate_entity(doc, sel, avp, woff, bg, anno, e, Some(blk_ref)))
             .collect();
 
         // Apply draw order via the cached index (O(1) block lookup).
@@ -1015,6 +1051,7 @@ impl Scene {
         } else {
             1.0
         };
+        let blk_cache = self.block_cache_arc();
         tessellate_entity(
             &self.document,
             &self.selected,
@@ -1023,6 +1060,7 @@ impl Scene {
             bg,
             anno,
             e,
+            Some(&blk_cache),
         )
     }
 
@@ -3495,6 +3533,7 @@ impl Scene {
         };
 
         let model_block = self.model_space_block_handle();
+        let blk_cache = self.block_cache_arc();
 
         self.document
             .entities()
@@ -3533,6 +3572,7 @@ impl Scene {
                     self.bg_color,
                     vp_anno_scale,
                     e,
+                    Some(&blk_cache),
                 )
             })
             .collect()
@@ -3722,6 +3762,7 @@ fn tessellate_entity(
     bg_color: [f32; 4],
     anno_scale: f32,
     e: &EntityType,
+    block_cache: Option<&block_cache::BlockCache>,
 ) -> Vec<WireModel> {
     let h = e.common().handle;
     let sel = selected.contains(&h);
@@ -3817,10 +3858,54 @@ fn tessellate_entity(
     }
 
     if let EntityType::Insert(ins) = e {
-        // Bail out for huge blocks (typically xref imports): exploding +
-        // tessellating tens of thousands of sub-entities freezes the UI, and
-        // any single bad sub can hang tessellation forever. Draw only an
-        // insertion marker so the user sees the block exists.
+        // Resolve the INSERT's own style so ByBlock sub-entities can inherit it.
+        let (ins_color, ins_pat_len, ins_pat, ins_lw_px, _) = render::render_style_for(document, e);
+        let ins_color = render::adapt_to_bg(ins_color, bg_color);
+        let [ox, oy, oz] = world_offset;
+        let ip = glam::Vec3::new(
+            (ins.insert_point.x - ox) as f32,
+            (ins.insert_point.y - oy) as f32,
+            (ins.insert_point.z - oz) as f32,
+        );
+        let marker = WireModel {
+            name: h.value().to_string(),
+            points: vec![],
+            color: entity_color,
+            selected: sel,
+            aci: 0,
+            pattern_length: 0.0,
+            pattern: [0.0; 8],
+            line_weight_px: 1.0,
+            snap_pts: vec![(ip, wire_model::SnapHint::Insertion)],
+            tangent_geoms: vec![],
+            key_vertices: vec![],
+            aabb: WireModel::UNBOUNDED_AABB,
+            plinegen: true,
+            vp_scissor: None,
+            fill_tris: vec![],
+        };
+
+        if let Some(cache) = block_cache {
+            if let Some(mut wires) = block_cache::expand_insert(
+                cache,
+                ins,
+                h,
+                ins_color,
+                ins_pat_len,
+                ins_pat,
+                ins_lw_px,
+                sel,
+                world_offset,
+                pslt_factor,
+            ) {
+                wires.push(marker);
+                return wires;
+            }
+        }
+
+        // Cache miss / unavailable: fall back to the original explode path,
+        // but keep the safety bail-out for pathologically large blocks so
+        // the UI doesn't hang on broken or unbounded sub-entity counts.
         const INSERT_SUB_LIMIT: usize = 5_000;
         let sub_count = document
             .block_records
@@ -3828,33 +3913,8 @@ fn tessellate_entity(
             .map(|br| br.entity_handles.len())
             .unwrap_or(0);
         if sub_count > INSERT_SUB_LIMIT {
-            let [ox, oy, oz] = world_offset;
-            let ip = glam::Vec3::new(
-                (ins.insert_point.x - ox) as f32,
-                (ins.insert_point.y - oy) as f32,
-                (ins.insert_point.z - oz) as f32,
-            );
-            return vec![WireModel {
-                name: h.value().to_string(),
-                points: vec![],
-                color: entity_color,
-                selected: sel,
-                aci,
-                pattern_length: 0.0,
-                pattern: [0.0; 8],
-                line_weight_px: 1.0,
-                snap_pts: vec![(ip, wire_model::SnapHint::Insertion)],
-                tangent_geoms: vec![],
-                key_vertices: vec![],
-                aabb: WireModel::UNBOUNDED_AABB,
-                plinegen: true,
-                vp_scissor: None,
-                fill_tris: vec![],
-            }];
+            return vec![marker];
         }
-        // Resolve the INSERT's own style so ByBlock sub-entities can inherit it.
-        let (ins_color, ins_pat_len, ins_pat, ins_lw_px, _) = render::render_style_for(document, e);
-        let ins_color = render::adapt_to_bg(ins_color, bg_color);
         let mut wires: Vec<WireModel> = ins
             .explode_from_document(document)
             .iter()
@@ -3892,30 +3952,7 @@ fn tessellate_entity(
                 vec![wire]
             })
             .collect();
-        // Insertion snap at the block reference origin.
-        let [ox, oy, oz] = world_offset;
-        let ip = glam::Vec3::new(
-            (ins.insert_point.x - ox) as f32,
-            (ins.insert_point.y - oy) as f32,
-            (ins.insert_point.z - oz) as f32,
-        );
-        wires.push(WireModel {
-            name: h.value().to_string(),
-            points: vec![],
-            color: entity_color,
-            selected: sel,
-            aci: 0,
-            pattern_length: 0.0,
-            pattern: [0.0; 8],
-            line_weight_px: 1.0,
-            snap_pts: vec![(ip, wire_model::SnapHint::Insertion)],
-            tangent_geoms: vec![],
-            key_vertices: vec![],
-            aabb: WireModel::UNBOUNDED_AABB,
-            plinegen: true,
-            vp_scissor: None,
-            fill_tris: vec![],
-        });
+        wires.push(marker);
         return wires;
     }
 

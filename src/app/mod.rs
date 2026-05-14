@@ -35,7 +35,7 @@ pub const OPEN_PHASE_CACHING: u8 = 2;
 pub const OPEN_PHASE_FINALIZING: u8 = 3;
 
 #[derive(Debug, Clone)]
-pub(super) struct OpenProgress {
+pub struct OpenProgress {
     pub name: String,
     pub size_bytes: u64,
     pub phase: Arc<AtomicU8>,
