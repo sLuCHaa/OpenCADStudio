@@ -4191,18 +4191,19 @@ fn tessellate_entity(
     vec![base]
 }
 
-/// Build the 6-vertex (2-triangle) fill for a greeked Text / MText entity
-/// in **world-offset-subtracted** f32 space, oriented to match the text's
-/// rotation. Width is approximated from the glyph height × character count
-/// (TEXT) or from `rectangle_width` (MTEXT).
-fn text_greek_obb_tris(
+/// Build the 4 OBB corners (CCW: bl, br, tr, tl) of a Text / MText entity
+/// in its **native frame** — for top-level entities this is world coords,
+/// for block-defn subs it's block-local. No offset/transform applied.
+/// Width is approximated from glyph height × character count (TEXT) or
+/// from `rectangle_width` (MTEXT). Returns `None` for non-text entities.
+pub(crate) fn text_obb_corners_native(
     e: &EntityType,
     anno_scale: f32,
-    world_offset: [f64; 3],
-) -> Vec<[f32; 3]> {
-    use acadrust::entities::{TextHorizontalAlignment, TextVerticalAlignment};
+) -> Option<[[f64; 3]; 4]> {
+    use acadrust::entities::{
+        AttachmentPoint, TextHorizontalAlignment, TextVerticalAlignment,
+    };
 
-    let [ox, oy, oz] = world_offset;
     let anno = anno_scale as f64;
 
     let (ix, iy, iz, w, h, rot, h_anchor, v_anchor) = match e {
@@ -4225,10 +4226,24 @@ fn text_greek_obb_tris(
                 TextVerticalAlignment::Middle => 0.5,
                 TextVerticalAlignment::Top => 1.0,
             };
+            // AutoCAD writes `alignment_point` (DXF 11) whenever the text
+            // isn't simple Left+Baseline; in that case it — not the
+            // insertion_point — is the anchor the alignment fractions map to.
+            let use_alignment_pt = !matches!(
+                (t.horizontal_alignment, t.vertical_alignment),
+                (
+                    TextHorizontalAlignment::Left,
+                    TextVerticalAlignment::Baseline,
+                )
+            );
+            let anchor = match (use_alignment_pt, t.alignment_point) {
+                (true, Some(p)) => p,
+                _ => t.insertion_point,
+            };
             (
-                t.insertion_point.x,
-                t.insertion_point.y,
-                t.insertion_point.z,
+                anchor.x,
+                anchor.y,
+                anchor.z,
                 w_world,
                 h_world,
                 t.rotation,
@@ -4247,6 +4262,20 @@ fn text_greek_obb_tris(
             let total_h = m
                 .rectangle_height
                 .unwrap_or(h_world * lines.max(1.0) * m.line_spacing_factor.max(0.5));
+            // MText `attachment_point` puts `insertion_point` at one of the
+            // 9 corners/midpoints of the text bbox. h_anchor / v_anchor are
+            // fractions from (left, bottom) of the bbox.
+            let (h_anchor, v_anchor) = match m.attachment_point {
+                AttachmentPoint::TopLeft => (0.0, 1.0),
+                AttachmentPoint::TopCenter => (0.5, 1.0),
+                AttachmentPoint::TopRight => (1.0, 1.0),
+                AttachmentPoint::MiddleLeft => (0.0, 0.5),
+                AttachmentPoint::MiddleCenter => (0.5, 0.5),
+                AttachmentPoint::MiddleRight => (1.0, 0.5),
+                AttachmentPoint::BottomLeft => (0.0, 0.0),
+                AttachmentPoint::BottomCenter => (0.5, 0.0),
+                AttachmentPoint::BottomRight => (1.0, 0.0),
+            };
             (
                 m.insertion_point.x,
                 m.insertion_point.y,
@@ -4254,35 +4283,49 @@ fn text_greek_obb_tris(
                 w_world,
                 total_h,
                 m.rotation,
-                0.0,
-                0.0,
+                h_anchor,
+                v_anchor,
             )
         }
-        _ => return vec![],
+        _ => return None,
     };
 
-    // Local-frame corners with anchor offsets applied.
     let x0 = -h_anchor * w;
     let x1 = (1.0 - h_anchor) * w;
     let y0 = -v_anchor * h;
     let y1 = (1.0 - v_anchor) * h;
 
     let (s, c) = (rot.sin(), rot.cos());
-    let rot_pt = |lx: f64, ly: f64| -> [f32; 3] {
+    let rot_pt = |lx: f64, ly: f64| -> [f64; 3] {
         let rx = lx * c - ly * s;
         let ry = lx * s + ly * c;
-        [
-            (ix + rx - ox) as f32,
-            (iy + ry - oy) as f32,
-            (iz - oz) as f32,
-        ]
+        [ix + rx, iy + ry, iz]
     };
 
-    let p00 = rot_pt(x0, y0);
-    let p10 = rot_pt(x1, y0);
-    let p11 = rot_pt(x1, y1);
-    let p01 = rot_pt(x0, y1);
+    Some([
+        rot_pt(x0, y0),
+        rot_pt(x1, y0),
+        rot_pt(x1, y1),
+        rot_pt(x0, y1),
+    ])
+}
 
+/// 6-vertex (2-triangle) fill for a greeked top-level Text / MText, in
+/// world-offset-subtracted f32 space.
+fn text_greek_obb_tris(
+    e: &EntityType,
+    anno_scale: f32,
+    world_offset: [f64; 3],
+) -> Vec<[f32; 3]> {
+    let Some(corners) = text_obb_corners_native(e, anno_scale) else {
+        return vec![];
+    };
+    let [ox, oy, oz] = world_offset;
+    let cast = |p: [f64; 3]| -> [f32; 3] {
+        [(p[0] - ox) as f32, (p[1] - oy) as f32, (p[2] - oz) as f32]
+    };
+    let [p00, p10, p11, p01] = corners;
+    let (p00, p10, p11, p01) = (cast(p00), cast(p10), cast(p11), cast(p01));
     vec![p00, p10, p11, p00, p11, p01]
 }
 

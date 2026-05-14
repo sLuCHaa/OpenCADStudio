@@ -304,6 +304,19 @@ fn tessellate_sub_local(
         _ => None,
     };
 
+    // Pre-compute the OBB corners (block-local f32) for Text / MText so the
+    // greek path can emit a rect that matches the entity's rotation instead
+    // of falling back to the axis-aligned `aabb_local`.
+    let text_obb_local: Option<[[f32; 3]; 4]> =
+        crate::scene::text_obb_corners_native(sub, anno_scale).map(|c| {
+            [
+                [c[0][0] as f32, c[0][1] as f32, c[0][2] as f32],
+                [c[1][0] as f32, c[1][1] as f32, c[1][2] as f32],
+                [c[2][0] as f32, c[2][1] as f32, c[2][2] as f32],
+                [c[3][0] as f32, c[3][1] as f32, c[3][2] as f32],
+            ]
+        });
+
     Some(LocalWire {
         points: wire.points,
         key_vertices: wire.key_vertices,
@@ -321,6 +334,7 @@ fn tessellate_sub_local(
         lw_is_byblock,
         aabb_local,
         text_height_local,
+        text_obb_local,
     })
 }
 
@@ -483,21 +497,44 @@ pub fn expand_insert(
     Some(batches.finalize(&name, selected))
 }
 
-/// Emit a greeked rectangle for a text LocalWire — same color, AABB-sized
-/// fill, no per-glyph stroke geometry. Mirrors the top-level text greek in
-/// scene/mod.rs (including the 0.45 dim pre-boost the face3d pipeline
-/// applies to fill_tris).
-fn emit_greeked_text(lw: &LocalWire, local_aabb: [f32; 4], ctx: &ExpandCtx, out: &mut Batches) {
-    let [x0, y0, x1, y1] = local_aabb;
-    let z = 0.0_f32;
-    let tris = [
-        [x0, y0, z],
-        [x1, y0, z],
-        [x1, y1, z],
-        [x0, y0, z],
-        [x1, y1, z],
-        [x0, y1, z],
-    ];
+/// Emit a greeked rectangle for a text LocalWire — same color, OBB-sized
+/// fill (rotated to match the entity), no per-glyph stroke geometry.
+/// Mirrors the top-level text greek in scene/mod.rs (including the 0.45
+/// dim pre-boost the face3d pipeline applies to fill_tris). Falls back to
+/// the axis-aligned `local_aabb` when no OBB was precomputed.
+fn emit_greeked_text(
+    lw: &LocalWire,
+    local_aabb: [f32; 4],
+    accum_xform: &Transform,
+    ctx: &ExpandCtx,
+    out: &mut Batches,
+) {
+    let [ox, oy, oz] = ctx.world_offset;
+    let tris: [[f32; 3]; 6] = if let Some(obb) = lw.text_obb_local {
+        // Transform block-local corners → world via accum_xform, then
+        // subtract world_offset so the fill_tris sit in the same f32 space
+        // as everything else in the batch.
+        let xf = |p: [f32; 3]| -> [f32; 3] {
+            let w = accum_xform.apply(Vector3::new(p[0] as f64, p[1] as f64, p[2] as f64));
+            [(w.x - ox) as f32, (w.y - oy) as f32, (w.z - oz) as f32]
+        };
+        let p00 = xf(obb[0]);
+        let p10 = xf(obb[1]);
+        let p11 = xf(obb[2]);
+        let p01 = xf(obb[3]);
+        [p00, p10, p11, p00, p11, p01]
+    } else {
+        let [x0, y0, x1, y1] = local_aabb;
+        let z = 0.0_f32;
+        [
+            [x0, y0, z],
+            [x1, y0, z],
+            [x1, y1, z],
+            [x0, y0, z],
+            [x1, y1, z],
+            [x0, y1, z],
+        ]
+    };
 
     let final_color = if ctx.selected {
         WireModel::SELECTED
@@ -734,7 +771,7 @@ fn expand_defn(
                             continue;
                         }
                         if h_px < 4.0 {
-                            emit_greeked_text(lw, local, ctx, out);
+                            emit_greeked_text(lw, local, accum_xform, ctx, out);
                             continue;
                         }
                     }
