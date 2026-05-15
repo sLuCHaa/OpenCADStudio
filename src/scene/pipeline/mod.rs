@@ -59,6 +59,10 @@ pub struct Pipeline {
     gpu_hatches: Vec<HatchGpu>,
     /// Pixel scissor rects [x, y, w, h] for viewport-clipped hatches. Recomputed each frame.
     hatch_pixel_scissors: Vec<Option<[u32; 4]>>,
+    /// `true` for hatches whose AABB projects to less than ~2 px at the
+    /// current zoom. Render pass skips the draw call. Recomputed each
+    /// frame alongside the scissor pass (Phase 3.3 hatch LOD).
+    hatch_skip_flags: Vec<bool>,
     /// Wipeout fills — rendered after wires in a separate pass.
     gpu_wipeouts: Vec<HatchGpu>,
     /// Pixel scissor rects [x, y, w, h] for viewport-clipped wipeouts. Recomputed each frame.
@@ -597,6 +601,7 @@ impl Pipeline {
             gpu_selected_wires: vec![],
             gpu_hatches: vec![],
             hatch_pixel_scissors: vec![],
+            hatch_skip_flags: vec![],
             gpu_wipeouts: vec![],
             wipeout_pixel_scissors: vec![],
             gpu_images: vec![],
@@ -637,6 +642,20 @@ impl Pipeline {
             .gpu_hatches
             .iter()
             .map(|h| project_scissor(h.vp_scissor, view_proj, clip_w, clip_h))
+            .collect();
+    }
+
+    /// Recompute per-hatch LOD skip flags. A hatch whose entire AABB
+    /// projects to less than ~2 px is invisible at this zoom — skip the
+    /// draw call entirely instead of running the polygon test for every
+    /// fragment in the bounding quad. Pairs with the shader-side
+    /// solid-fill substitution for hatches between 2 px and the dense
+    /// pattern threshold.
+    pub fn compute_hatch_lod(&mut self, view_proj: glam::Mat4, clip_w: u32, clip_h: u32) {
+        self.hatch_skip_flags = self
+            .gpu_hatches
+            .iter()
+            .map(|h| aabb_below_pixel(h.world_aabb, view_proj, clip_w, clip_h, 2.0))
             .collect();
     }
 
@@ -767,6 +786,10 @@ impl Pipeline {
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 let mut scissor_active = false;
                 for (i, hatch) in self.gpu_hatches.iter().enumerate() {
+                    // Phase 3.3 LOD: skip hatches projecting to sub-pixel size.
+                    if self.hatch_skip_flags.get(i).copied().unwrap_or(false) {
+                        continue;
+                    }
                     match self.hatch_pixel_scissors.get(i) {
                         Some(Some([x, y, w, h])) => {
                             pass.set_scissor_rect(*x, *y, *w, *h);
@@ -1159,6 +1182,43 @@ impl Pipeline {
             self.depth_texture_size = size;
         }
     }
+}
+
+/// Return `true` when the world-XY AABB's screen-space size is below the
+/// given pixel threshold. Used by LOD passes (hatch skip, etc.) to drop
+/// draw calls that wouldn't contribute a visible pixel.
+fn aabb_below_pixel(
+    aabb: [f32; 4],
+    view_proj: glam::Mat4,
+    clip_w: u32,
+    clip_h: u32,
+    threshold_px: f32,
+) -> bool {
+    let [x0, y0, x1, y1] = aabb;
+    if !x0.is_finite() || !y0.is_finite() || !x1.is_finite() || !y1.is_finite() {
+        return false;
+    }
+    let w = clip_w as f32;
+    let h = clip_h as f32;
+    let corners = [
+        view_proj.project_point3(glam::Vec3::new(x0, y0, 0.0)),
+        view_proj.project_point3(glam::Vec3::new(x1, y0, 0.0)),
+        view_proj.project_point3(glam::Vec3::new(x0, y1, 0.0)),
+        view_proj.project_point3(glam::Vec3::new(x1, y1, 0.0)),
+    ];
+    let mut min_px = f32::INFINITY;
+    let mut max_px = f32::NEG_INFINITY;
+    let mut min_py = f32::INFINITY;
+    let mut max_py = f32::NEG_INFINITY;
+    for c in &corners {
+        let px = (c.x + 1.0) * 0.5 * w;
+        let py = (1.0 - c.y) * 0.5 * h;
+        if px < min_px { min_px = px; }
+        if px > max_px { max_px = px; }
+        if py < min_py { min_py = py; }
+        if py > max_py { max_py = py; }
+    }
+    (max_px - min_px).max(max_py - min_py) < threshold_px
 }
 
 /// Project a world-space XY scissor rect through `view_proj` into the four

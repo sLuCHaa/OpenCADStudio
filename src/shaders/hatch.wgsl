@@ -13,10 +13,11 @@
 // ── Group 0: frame uniforms (shared) ──────────────────────────────────────
 
 struct Uniforms {
-    view_proj:     mat4x4<f32>,
-    camera_pos:    vec4<f32>,
-    viewport_size: vec2<f32>,
-    _pad:          vec2<f32>,
+    view_proj:       mat4x4<f32>,
+    camera_pos:      vec4<f32>,
+    viewport_size:   vec2<f32>,
+    world_per_pixel: f32,
+    _pad:            f32,
 }
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -195,7 +196,24 @@ fn check_family(
         return mix(h.color, h.color2, t);
     }
 
-    // 3. Pattern: evaluate each line family.
+    // 3. Pattern: LOD substitution — when the densest family's spacing
+    //    projects to less than 2 px, individual lines blur into a solid
+    //    fill and the per-family loop just wastes ALU. Return solid color
+    //    instead. (Phase 3.3 hatch LOD.)
+    if u.world_per_pixel > 0.0 && f.n_families > 0u {
+        var min_spacing_world: f32 = 1.0e30;
+        for (var i = 0u; i < f.n_families; i++) {
+            let s = abs(f.families[i].perp_step) * h.scale;
+            if s > 0.0 && s < min_spacing_world {
+                min_spacing_world = s;
+            }
+        }
+        if min_spacing_world / u.world_per_pixel < 2.0 {
+            return h.color;
+        }
+    }
+
+    // 4. Pattern: evaluate each line family.
     let cos_off = cos(h.angle_offset);
     let sin_off = sin(h.angle_offset);
     for (var i = 0u; i < f.n_families; i++) {
