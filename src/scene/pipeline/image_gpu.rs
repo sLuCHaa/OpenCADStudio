@@ -53,6 +53,8 @@ struct ImageParams {
 pub struct ImageGpu {
     pub vertex_buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
+    /// Mirrors `ImageModel.vp_scissor` — see `HatchGpu.vp_scissor`.
+    pub vp_scissor: Option<[f32; 4]>,
     _texture: wgpu::Texture,
     _sampler: wgpu::Sampler,
     _params_buf: wgpu::Buffer,
@@ -183,6 +185,7 @@ impl ImageGpu {
         Some(Self {
             vertex_buffer,
             bind_group,
+            vp_scissor: model.vp_scissor,
             _texture: texture,
             _sampler,
             _params_buf,

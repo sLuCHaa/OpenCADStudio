@@ -2315,6 +2315,7 @@ impl Scene {
                     color,
                     angle_offset: 0.0,
                     scale: 1.0,
+                    vp_scissor: None,
                 });
             }
         }
@@ -2367,6 +2368,7 @@ impl Scene {
                     color: fill_color,
                     angle_offset: 0.0,
                     scale: 1.0,
+                    vp_scissor: None,
                 });
             }
         }
@@ -2658,6 +2660,7 @@ impl Scene {
             color,
             angle_offset: dxf.pattern_angle as f32,
             scale: dxf.pattern_scale as f32,
+            vp_scissor: None,
         })
     }
 
@@ -2806,6 +2809,7 @@ impl Scene {
             color,
             angle_offset: 0.0,
             scale: 1.0,
+            vp_scissor: None,
         }
     }
 

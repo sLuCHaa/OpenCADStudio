@@ -23,6 +23,10 @@ pub struct ImageModel {
     ///   [2] origin + U*W + V*H (top-right)
     ///   [3] origin + V*H (top-left)
     pub corners: [[f32; 3]; 4],
+    /// Optional world-space XY rect [x0, y0, x1, y1] for paper-space
+    /// viewport clipping. Mirrors `WireModel.vp_scissor` /
+    /// `HatchModel.vp_scissor`.
+    pub vp_scissor: Option<[f32; 4]>,
 }
 
 impl ImageModel {
@@ -56,6 +60,7 @@ impl ImageModel {
             height,
             opacity,
             corners,
+            vp_scissor: None,
         })
     }
 }

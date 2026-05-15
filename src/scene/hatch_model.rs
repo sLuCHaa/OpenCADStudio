@@ -58,4 +58,10 @@ pub struct HatchModel {
     pub angle_offset: f32,
     /// Pattern scale multiplier (from DXF `pattern_scale`).
     pub scale: f32,
+    /// Optional world-space XY rect [x0, y0, x1, y1] for paper-space
+    /// viewport clipping. When `Some`, the pipeline translates it into
+    /// a per-frame pixel scissor and clips this hatch's draw call to it,
+    /// preventing viewport-projected content from bleeding past the
+    /// viewport frame. Mirrors `WireModel.vp_scissor`.
+    pub vp_scissor: Option<[f32; 4]>,
 }

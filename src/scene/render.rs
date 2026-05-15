@@ -144,6 +144,9 @@ impl shader::Primitive for Primitive {
             pipeline.cached_epoch = cur_key;
         }
         pipeline.compute_wire_scissors(self.uniforms.view_proj, clip_size.width, clip_size.height);
+        pipeline.compute_hatch_scissors(self.uniforms.view_proj, clip_size.width, clip_size.height);
+        pipeline.compute_wipeout_scissors(self.uniforms.view_proj, clip_size.width, clip_size.height);
+        pipeline.compute_image_scissors(self.uniforms.view_proj, clip_size.width, clip_size.height);
         if self.show_viewcube {
             pipeline.viewcube.upload(
                 queue,

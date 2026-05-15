@@ -102,6 +102,10 @@ pub struct FamilyBatchData {
 pub struct HatchGpu {
     pub vertex_buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
+    /// Mirrors `HatchModel.vp_scissor`. Forwarded to the pipeline so each
+    /// frame's `compute_hatch_scissors` can translate the world rect into
+    /// a pixel scissor.
+    pub vp_scissor: Option<[f32; 4]>,
     _uniform_buf: wgpu::Buffer,
     _boundary_buf: wgpu::Buffer,
     _family_buf: wgpu::Buffer,
@@ -268,6 +272,7 @@ impl HatchGpu {
         Self {
             vertex_buffer,
             bind_group,
+            vp_scissor: model.vp_scissor,
             _uniform_buf,
             _boundary_buf,
             _family_buf,
