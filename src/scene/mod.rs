@@ -3450,15 +3450,79 @@ impl Scene {
             return;
         }
 
+        // Per-wire centroid pass — used both for the absolute-magnitude reject
+        // (`local_extent_max`) and for the IQR-based outlier reject below.
+        // A wire whose centroid sits far outside the drawing's consensus
+        // cluster is an orphan (block-defn entity that leaked into MSPACE,
+        // bogus hatch boundary, Ray/XLine far point) and must not poison the
+        // bounding box.
+        struct WireCent {
+            idx: usize,
+            cx: f32,
+            cy: f32,
+        }
+        let lim = self.local_extent_max;
+        let mut cents: Vec<WireCent> = Vec::with_capacity(wires.len());
+        for (idx, wire) in wires.iter().enumerate() {
+            let mut sx = 0.0_f64;
+            let mut sy = 0.0_f64;
+            let mut n = 0_usize;
+            for &[x, y, _] in &wire.points {
+                if !x.is_finite() || !y.is_finite() {
+                    continue;
+                }
+                if x.abs() > lim || y.abs() > lim {
+                    continue;
+                }
+                sx += x as f64;
+                sy += y as f64;
+                n += 1;
+            }
+            if n > 0 {
+                cents.push(WireCent {
+                    idx,
+                    cx: (sx / n as f64) as f32,
+                    cy: (sy / n as f64) as f32,
+                });
+            }
+        }
+        if cents.is_empty() {
+            return;
+        }
+
+        // IQR-based reject only kicks in with enough samples for the quartiles
+        // to be meaningful. Below that, the absolute `lim` filter is the only
+        // gate (legacy behavior).
+        let (rx_lo, rx_hi, ry_lo, ry_hi) = if cents.len() >= 8 {
+            let mut xs: Vec<f32> = cents.iter().map(|c| c.cx).collect();
+            let mut ys: Vec<f32> = cents.iter().map(|c| c.cy).collect();
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let q = |v: &[f32], frac: f32| v[((v.len() as f32 - 1.0) * frac) as usize];
+            let q1x = q(&xs, 0.25);
+            let q3x = q(&xs, 0.75);
+            let q1y = q(&ys, 0.25);
+            let q3y = q(&ys, 0.75);
+            // k=10× the inter-quartile span is permissive enough to keep
+            // legitimate sparse outlying geometry (annotation labels, scattered
+            // dim leaders) but tight enough to drop a single wire stranded at
+            // -world_offset. `max(1.0)` guards against a degenerate IQR=0
+            // (e.g. all wires at the same centroid).
+            const K: f32 = 10.0;
+            let dx = (q3x - q1x).max(1.0) * K;
+            let dy = (q3y - q1y).max(1.0) * K;
+            (q1x - dx, q3x + dx, q1y - dy, q3y + dy)
+        } else {
+            (-lim, lim, -lim, lim)
+        };
+
         let mut min = glam::Vec3::splat(f32::MAX);
         let mut max = glam::Vec3::splat(f32::MIN);
-        // Reject XY points beyond 10× the drawing's EXTMIN→EXTMAX half-size.
-        // These come from origin-stuck entities (y ≈ -world_offset.y after subtraction)
-        // or Ray/XLine far-points with bad direction vectors. The gate is XY-only:
-        // Civil 3D files can legitimately carry profile geometry at huge Z (10^6+
-        // units) inside an otherwise small XY footprint, and gating on Z hides them.
-        let lim = self.local_extent_max;
-        for wire in &wires {
+        for c in &cents {
+            if c.cx < rx_lo || c.cx > rx_hi || c.cy < ry_lo || c.cy > ry_hi {
+                continue;
+            }
+            let wire = &wires[c.idx];
             for &[x, y, z] in &wire.points {
                 if !x.is_finite() || !y.is_finite() || !z.is_finite() {
                     continue;
