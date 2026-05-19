@@ -1987,6 +1987,12 @@ impl Scene {
                 out.points = clipped;
                 out.color = [r * 0.80, g * 0.80, b * 0.80, a * 0.85];
                 out.line_weight_px = wire.line_weight_px;
+                // Wire's pattern was sized for model-space coords during
+                // tessellation; we just projected points into paper coords
+                // (× scale), so rescale the dash pattern by the same factor
+                // to keep dimensional consistency in the GPU shader.
+                out.pattern_length = wire.pattern_length * scale;
+                out.pattern = wire.pattern.map(|v| v * scale);
                 out.vp_scissor = Some([vp_x0, vp_y0, vp_x1, vp_y1]);
                 projected.push(out);
             }
