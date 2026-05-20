@@ -1696,10 +1696,28 @@ impl Scene {
             }
         }
         if any {
-            Some((min, max))
-        } else {
-            None
+            return Some((min, max));
         }
+        // Last-resort: the header's saved EXTMIN/EXTMAX. AutoCAD writes these
+        // on save so opening a file gives ZOOM EXTENTS a useful answer before
+        // the wire cache is built.
+        const SANE_EXTENT: f64 = 1.0e16;
+        let h = &self.document.header;
+        let hmin = h.model_space_extents_min;
+        let hmax = h.model_space_extents_max;
+        if hmin.x < hmax.x
+            && hmin.y < hmax.y
+            && hmin.x.abs() < SANE_EXTENT
+            && hmax.x.abs() < SANE_EXTENT
+            && hmin.y.abs() < SANE_EXTENT
+            && hmax.y.abs() < SANE_EXTENT
+        {
+            return Some((
+                glam::Vec3::new(hmin.x as f32, hmin.y as f32, hmin.z as f32),
+                glam::Vec3::new(hmax.x as f32, hmax.y as f32, hmax.z as f32),
+            ));
+        }
+        None
     }
 
     /// Set a newly created viewport's `view_target` and `view_height` so that
