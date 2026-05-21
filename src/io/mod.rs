@@ -258,35 +258,76 @@ fn finite_vec3(v: &acadrust::types::Vector3) -> bool {
 /// Returns true if the entity looks like parser garbage and should be dropped.
 fn is_entity_corrupt(e: &EntityType) -> bool {
     use acadrust::entities::EntityType as E;
+    // Reject polylines at or above this vertex count. Even valid drawings
+    // rarely use this many — and parser desync produces exactly-100_000-vertex
+    // junk records.
     const MAX_VERTS: usize = 100_000;
     match e {
         E::LwPolyline(p) => {
             !finite_unit_normal(&p.normal)
-                || p.vertices.len() > MAX_VERTS
+                || p.vertices.len() >= MAX_VERTS
                 || !finite_coord(p.elevation)
                 || p.elevation.abs() > 1.0e10
+                || !finite_coord(p.thickness)
+                || p.thickness.abs() > 1.0e10
+                || p.vertices
+                    .iter()
+                    .any(|v| !finite_coord(v.location.x) || !finite_coord(v.location.y))
         }
         E::Polyline2D(p) => {
             !finite_unit_normal(&p.normal)
-                || p.vertices.len() > MAX_VERTS
+                || p.vertices.len() >= MAX_VERTS
                 || !finite_coord(p.elevation)
                 || p.elevation.abs() > 1.0e10
+                || !finite_coord(p.thickness)
+                || p.thickness.abs() > 1.0e10
+                || p.vertices.iter().any(|v| !finite_vec3(&v.location))
         }
         E::Polyline3D(p) => {
-            p.vertices.len() > MAX_VERTS
+            p.vertices.len() >= MAX_VERTS
                 || p.vertices.iter().any(|v| !finite_vec3(&v.position))
         }
         E::Polyline(p) => {
-            p.vertices.len() > MAX_VERTS
+            p.vertices.len() >= MAX_VERTS
                 || p.vertices.iter().any(|v| !finite_vec3(&v.location))
         }
         E::Line(l) => !finite_vec3(&l.start) || !finite_vec3(&l.end),
-        E::Circle(c) => !finite_vec3(&c.center) || !finite_coord(c.radius),
+        E::Circle(c) => {
+            !finite_vec3(&c.center)
+                || !finite_coord(c.radius)
+                // Reject zero- or near-zero circles: they tessellate into a
+                // degenerate truck curve that crashes parameter_division.
+                || c.radius.abs() < 1.0e-10
+                || c.radius.abs() > 1.0e10
+        }
         E::Arc(a) => {
             !finite_vec3(&a.center)
                 || !finite_coord(a.radius)
                 || !a.start_angle.is_finite()
                 || !a.end_angle.is_finite()
+                // Same degenerate-curve guard as Circle.
+                || a.radius.abs() < 1.0e-10
+                || a.radius.abs() > 1.0e10
+                // Zero-sweep arc (start_angle == end_angle, modulo 2π) collapses
+                // to a single point in WCS — truck's circle_arc on three
+                // coincident vertices recurses unboundedly in parameter_division.
+                || (a.end_angle - a.start_angle).abs() < 1.0e-9
+                || !finite_unit_normal(&a.normal)
+        }
+        E::Ellipse(e) => {
+            !finite_vec3(&e.center)
+                || !finite_vec3(&e.major_axis)
+                || !e.start_parameter.is_finite()
+                || !e.end_parameter.is_finite()
+                || (e.end_parameter - e.start_parameter).abs() < 1.0e-9
+                || {
+                    let m2 = e.major_axis.x * e.major_axis.x
+                        + e.major_axis.y * e.major_axis.y
+                        + e.major_axis.z * e.major_axis.z;
+                    !m2.is_finite() || m2 < 1.0e-20 || m2 > 1.0e20
+                }
+                || !e.minor_axis_ratio.is_finite()
+                || e.minor_axis_ratio.abs() < 1.0e-10
         }
         _ => false,
     }
