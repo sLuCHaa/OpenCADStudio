@@ -42,7 +42,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 [[package]]
 name = "acadrust"
 version = "0.3.4"
-source = "git+https://github.com/HakanSeven12/acadrust?branch=fix%2Fwipeout-clip-vertices#15e434f733a4c970d5d680de89acc2cb381accbe"
+source = "git+https://github.com/HakanSeven12/acadrust?branch=main#291625559362a236d0717185aeef7b07b49027a1"
 dependencies = [
  "ahash",
  "anyhow",
