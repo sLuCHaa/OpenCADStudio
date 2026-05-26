@@ -1,6 +1,6 @@
 # Open CAD Studio
 
-<img width="1920" height="1020" alt="Ekran görüntüsü 2026-05-23 105715" src="https://github.com/user-attachments/assets/14e4287a-79d3-4bfa-a509-15726ca4f830" />
+<img width="1920" height="940" alt="resim" src="https://github.com/user-attachments/assets/2cd69f3a-d51a-4f40-bb45-9488945f864d" />
 
 A CAD application for 2D drafting and 3D modeling, built with Rust. Reads and writes DWG and DXF files natively.
 
