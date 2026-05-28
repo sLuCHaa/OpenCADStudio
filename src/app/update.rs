@@ -1221,6 +1221,7 @@ impl OpenCADStudio {
                     let (id, task) = window::open(window::Settings {
                         size: iced::Size::new(900.0, 360.0),
                         resizable: true,
+                        level: window::Level::AlwaysOnTop,
                         ..Default::default()
                     });
                     self.layer_window = Some(id);
@@ -3777,6 +3778,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(640.0, 320.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.layout_manager_window = Some(id);
@@ -3926,6 +3928,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(720.0, 520.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.shortcuts_window = Some(id);
@@ -3947,6 +3950,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(340.0, 240.0),
                     resizable: false,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.about_window = Some(id);
@@ -4226,6 +4230,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(520.0, 460.0),
                     resizable: false,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.page_setup_window = Some(id);
@@ -4253,6 +4258,7 @@ impl OpenCADStudio {
                     // a meaningful scroll preview without dwarfing the app.
                     size: iced::Size::new(560.0, 460.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.update_notice_window = Some(id);
@@ -4706,6 +4712,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(780.0, 540.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.plotstyle_window = Some(id);
@@ -4868,6 +4875,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(620.0, 460.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.textstyle_window = Some(id);
@@ -5008,6 +5016,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(620.0, 420.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.tablestyle_window = Some(id);
@@ -5134,6 +5143,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(620.0, 420.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.mlstyle_window = Some(id);
@@ -5277,6 +5287,7 @@ impl OpenCADStudio {
                 let (id, task) = window::open(window::Settings {
                     size: iced::Size::new(720.0, 560.0),
                     resizable: true,
+                    level: window::Level::AlwaysOnTop,
                     ..Default::default()
                 });
                 self.dimstyle_window = Some(id);
@@ -5770,6 +5781,7 @@ impl OpenCADStudio {
         let (id, task) = window::open(window::Settings {
             size: iced::Size::new(560.0, 480.0),
             resizable: true,
+            level: window::Level::AlwaysOnTop,
             ..Default::default()
         });
         self.save_dialog_window = Some(id);
@@ -5791,6 +5803,7 @@ impl OpenCADStudio {
         let (id, task) = window::open(window::Settings {
             size: iced::Size::new(420.0, 155.0),
             resizable: false,
+            level: window::Level::AlwaysOnTop,
             ..Default::default()
         });
         self.unsaved_dialog_window = Some(id);
