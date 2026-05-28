@@ -421,6 +421,11 @@ pub struct ViewportInstance {
     /// Source viewport entity handle, or `Handle::NULL` for the implicit
     /// full-canvas Model view that has no backing entity yet.
     pub handle: Handle,
+    /// Source Model-space tile index, or `None` for paper-layout viewports
+    /// (they're identified by `handle` instead). Used as the cache key for
+    /// `Scene::model_tile_wires_arc` so each pane reuses its own entry on
+    /// camera moves instead of accumulating one per camera hash.
+    pub tile_idx: Option<usize>,
     /// Screen rectangle (pixels, canvas-relative) this viewport fills.
     pub screen_rect: iced::Rectangle,
     pub camera: Camera,
@@ -472,6 +477,25 @@ fn overlap_len(a: (f32, f32), b: (f32, f32)) -> f32 {
     (a.1.min(b.1) - a.0.max(b.0)).max(0.0)
 }
 
+/// Stable hash of a `Camera`'s pose for use as a per-tile cache key.
+/// Two cameras with bit-identical target / rotation / distance hash the
+/// same; any orbit / pan / zoom on a tile bumps it.
+fn camera_state_hash(c: &Camera) -> u64 {
+    fn h(state: u64, x: f32) -> u64 {
+        state.rotate_left(13) ^ x.to_bits() as u64
+    }
+    let mut s: u64 = 0xcbf2_9ce4_8422_2325;
+    s = h(s, c.target.x);
+    s = h(s, c.target.y);
+    s = h(s, c.target.z);
+    s = h(s, c.rotation.x);
+    s = h(s, c.rotation.y);
+    s = h(s, c.rotation.z);
+    s = h(s, c.rotation.w);
+    s = h(s, c.distance);
+    s
+}
+
 pub struct Scene {
     pub camera: Rc<RefCell<Camera>>,
     /// Model-space tiled viewport layout. One full-window tile by default;
@@ -498,6 +522,16 @@ pub struct Scene {
     /// invalidates the cull-dependent wire list as well as a geometry change.
     /// Uses `Arc` so `build_primitive()` avoids a full Vec clone during navigation.
     wire_cache: RefCell<Option<((u64, u64), Arc<Vec<WireModel>>)>>,
+    /// Per-Model-tile cached tessellation. Each tile has its own camera
+    /// (live for the active tile, stored snapshot for the others), so
+    /// LOD / frustum culling has to run independently — the shared
+    /// `wire_cache` would cull every tile against whichever camera was
+    /// current when it was last built. Keyed by tile index; the value
+    /// carries `(geometry_epoch, camera_state_hash)` so a cache hit is
+    /// also rejected when the same tile's camera moved or the document
+    /// geometry changed.
+    model_tile_wire_cache:
+        RefCell<HashMap<usize, ((u64, u64), Arc<Vec<WireModel>>)>>,
     /// Index built from every SortEntitiesTable in the document.
     /// Maps block_handle → (entity_handle.value() → sort_handle.value()).
     /// Replaces the O(objects) linear scan inside `wires_for_block()` with an O(1) lookup.
@@ -613,6 +647,7 @@ impl Scene {
             camera_generation: 0,
             geometry_epoch: GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed),
             wire_cache: RefCell::new(None),
+            model_tile_wire_cache: RefCell::new(HashMap::new()),
             sort_cache: RefCell::new(None),
             hatch_cache: RefCell::new(None),
             wipeout_cache: RefCell::new(None),
@@ -1126,6 +1161,59 @@ impl Scene {
             .collect()
     }
 
+    /// Per-tile cached tessellation for the Model layout. Each tile has
+    /// its own camera (live for the active tile, stored snapshot for the
+    /// others), so LOD / frustum culling has to run independently — the
+    /// shared `entity_wires_arc` cache would cull every tile against
+    /// whichever camera was current when it was last built.
+    ///
+    /// `cam_aspect` is the tile's pixel `width / height`; together with the
+    /// camera's `ortho_size` it determines the world-XY rectangle culled
+    /// against. Returns a clone of the cached `Arc` on a key match.
+    pub(super) fn model_tile_wires_arc(
+        &self,
+        tile_idx: usize,
+        cam: &Camera,
+        cam_aspect: f32,
+        tile_pixel_height: f32,
+    ) -> Arc<Vec<WireModel>> {
+        let cam_key = camera_state_hash(cam);
+        let key = (self.geometry_epoch, cam_key);
+        {
+            let cache = self.model_tile_wire_cache.borrow();
+            if let Some((cached_key, ref arc)) = cache.get(&tile_idx) {
+                if *cached_key == key {
+                    return Arc::clone(arc);
+                }
+            }
+        }
+        // Compute the tile's own view AABB and world-per-pixel from its
+        // camera + pixel size (mirrors `view_world_aabb` /
+        // `world_per_pixel`, neither of which knows about anything beyond
+        // the live `self.camera`).
+        let view_aabb = if self.camera_generation == 0 {
+            None
+        } else {
+            let h = cam.ortho_size();
+            let w = h * cam_aspect.max(0.01);
+            let margin = 1.25_f32;
+            let cx = cam.target.x;
+            let cy = cam.target.y;
+            Some([cx - w * margin, cy - h * margin, cx + w * margin, cy + h * margin])
+        };
+        let wpp = if tile_pixel_height > 0.0 {
+            Some((2.0 * cam.ortho_size()) / tile_pixel_height)
+        } else {
+            None
+        };
+        let block = self.model_space_block_handle();
+        let arc = Arc::new(self.wires_for_block_culled(block, view_aabb, wpp));
+        self.model_tile_wire_cache
+            .borrow_mut()
+            .insert(tile_idx, (key, Arc::clone(&arc)));
+        arc
+    }
+
     /// Cached tessellation of the current layout block's paper-space entities.
     /// Shared by both `entity_wires_arc()` and `paper_canvas_wires()` so a single
     /// cache miss triggers only one tessellation pass, not two.
@@ -1330,6 +1418,22 @@ impl Scene {
 
     /// Tessellate all non-invisible entities owned by `block_handle`.
     fn wires_for_block(&self, block_handle: Handle) -> Vec<WireModel> {
+        // Default culling is driven by the live `Scene::camera`. Multi-tile
+        // Model layouts call `wires_for_block_culled` directly with each
+        // tile's own camera so the per-tile LOD / frustum cull is independent.
+        self.wires_for_block_culled(
+            block_handle,
+            self.view_world_aabb(),
+            self.world_per_pixel(),
+        )
+    }
+
+    fn wires_for_block_culled(
+        &self,
+        block_handle: Handle,
+        view_aabb: Option<[f32; 4]>,
+        wpp: Option<f32>,
+    ) -> Vec<WireModel> {
         use acadrust::objects::ObjectType;
 
         // ── Ensure sort-order index is current ────────────────────────────
@@ -1391,7 +1495,7 @@ impl Scene {
         // entities (Insert/Viewport) are appended via a small linear scan.
         // Paper space and the first-frame "settle" path fall back to the
         // full doc scan — preserving prior behaviour.
-        let visible: Vec<&EntityType> = if let Some(local_view) = self.view_world_aabb() {
+        let visible: Vec<&EntityType> = if let Some(local_view) = view_aabb {
             let [ox, oy, _] = self.world_offset;
             let view_wcs: [f64; 4] = [
                 local_view[0] as f64 + ox,
@@ -1460,8 +1564,6 @@ impl Scene {
         };
         let blk_cache = self.block_cache_arc();
         let blk_ref: &block_cache::BlockCache = &blk_cache;
-        let view_aabb = self.view_world_aabb();
-        let wpp = self.world_per_pixel();
         // Zoom-adaptive curve sampling for top-level Edge tessellation. Target
         // ~0.5 px chord height — far-out arcs that used to emit hundreds of
         // segments now collapse to a handful. The guard clears the override
@@ -4976,6 +5078,7 @@ impl Scene {
                     };
                     ViewportInstance {
                         handle: Handle::NULL,
+                        tile_idx: Some(i),
                         screen_rect: iced::Rectangle {
                             x: tile.rect.x * canvas_w,
                             y: tile.rect.y * canvas_h,
@@ -5010,6 +5113,7 @@ impl Scene {
             };
             out.push(ViewportInstance {
                 handle: h,
+                tile_idx: None,
                 screen_rect,
                 camera,
                 render_mode: vp.render_mode,

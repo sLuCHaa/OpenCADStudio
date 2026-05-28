@@ -580,7 +580,18 @@ impl Scene {
         let us = (visible_w / full.width).clamp(0.0, 1.0);
         let vs = (visible_h / full.height).clamp(0.0, 1.0);
 
-        let base_arc = if inst.handle == acadrust::Handle::NULL {
+        // Model tiles each get their own tessellation cache keyed off the
+        // tile's camera — culling/LOD depend on per-tile zoom, not the
+        // active tile's. Paper-space content viewports already had a
+        // per-viewport cache.
+        let base_arc = if let Some(tile_idx) = inst.tile_idx {
+            let aspect = if full.height > 0.0 {
+                full.width / full.height
+            } else {
+                1.0
+            };
+            self.model_tile_wires_arc(tile_idx, &inst.camera, aspect, full.height)
+        } else if inst.handle == acadrust::Handle::NULL {
             self.entity_wires_arc()
         } else {
             self.model_wires_for_viewport_arc(inst.handle)
