@@ -1085,7 +1085,16 @@ impl OpenCADStudio {
                         self.last_point = Some(wcs_pt);
                         let result = self.tabs[i].active_cmd.as_mut().map(|c| c.on_point(wcs_pt));
                         if let Some(r) = result {
-                            return self.apply_cmd_result(r);
+                            let task = self.apply_cmd_result(r);
+                            // The rubber-band preview that the command
+                            // last published reflects the *previous*
+                            // last_point — a typed coordinate doesn't
+                            // fire a mouse-move, so re-run the preview
+                            // hook now using the current cursor world
+                            // pos so the next segment immediately starts
+                            // from the just-committed point. See #32.
+                            self.refresh_active_cmd_preview(i);
+                            return task;
                         }
                         return Task::none();
                     }
@@ -5377,6 +5386,25 @@ impl OpenCADStudio {
         }
     }
 
+    /// Re-run the active command's preview hook against the current
+    /// cursor world position. Keyboard-driven point commits (typed
+    /// coordinates in the command line or dynamic input) don't fire a
+    /// mouse-move event, so without this the rubber-band preview keeps
+    /// dangling from the previous `last_point` until the user actually
+    /// moves the mouse. See #32.
+    fn refresh_active_cmd_preview(&mut self, i: usize) {
+        if self.tabs[i].active_cmd.is_none() {
+            return;
+        }
+        let cur = self.tabs[i].last_cursor_world;
+        let previews = self.tabs[i]
+            .active_cmd
+            .as_mut()
+            .map(|c| c.on_preview_wires(cur))
+            .unwrap_or_default();
+        self.tabs[i].scene.set_preview_wires(previews);
+    }
+
     /// Resolve the world point implied by the current dynamic-input field
     /// values. Locked fields use their typed buffer; the rest fall back to
     /// the live cursor-derived value. Returns `None` when the field set
@@ -5451,7 +5479,13 @@ impl OpenCADStudio {
             f.buffer = None;
         }
         self.tabs[i].dyn_active = 0;
-        result.map(|r| self.apply_cmd_result(r))
+        let task = result.map(|r| self.apply_cmd_result(r))?;
+        // Match the command-line path: refresh the rubber-band preview
+        // so the next segment immediately starts from the new
+        // last_point even though no mouse-move fires after a typed
+        // coordinate. See #32.
+        self.refresh_active_cmd_preview(i);
+        Some(task)
     }
 
     /// Populate all edit buffers from the currently selected dim style.
