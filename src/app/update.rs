@@ -3239,6 +3239,23 @@ impl OpenCADStudio {
                 use crate::entities::traits::EntityTypeOps;
                 use crate::scene::object::GripMenuAction;
                 if matches!(item.action, GripMenuAction::Stretch) {
+                    // Stretch = move this grip. Engage it so the next click
+                    // places it (click-move-click) — same as picking the grip
+                    // directly in the viewport. Without this the menu just
+                    // closed and the grip never became hot (issue #48).
+                    if let Some(g) = self.tabs[i]
+                        .selected_grips
+                        .iter()
+                        .find(|g| g.id == popup.grip_id)
+                    {
+                        self.tabs[i].active_grip = Some(GripEdit {
+                            handle: popup.handle,
+                            grip_id: popup.grip_id,
+                            is_translate: g.is_midpoint,
+                            origin_world: g.world,
+                            last_world: g.world,
+                        });
+                    }
                     return Task::none();
                 }
                 // Actions that need a follow-up number stash a pending
