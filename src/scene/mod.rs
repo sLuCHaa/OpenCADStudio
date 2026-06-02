@@ -436,6 +436,10 @@ pub struct ViewportInstance {
     pub render_mode: acadrust::entities::ViewportRenderMode,
     /// `true` when this is the viewport receiving cursor input.
     pub active: bool,
+    /// `true` for the full-canvas paper "sheet" viewport — the layout's own
+    /// view (paper-space entities, top-locked), the paper equivalent of the
+    /// Model view. Floating content viewports overlay it.
+    pub paper_sheet: bool,
 }
 
 /// One pane of the Model-space tiled viewport layout: the normalized screen
@@ -2691,16 +2695,18 @@ impl Scene {
         };
         cam.orbit(delta_x, delta_y);
         // yaw_pitch_to_quat(y,p)*Z = (cos(p)*sin(y), -cos(p)*cos(y), sin(p))
-        // but view_direction convention (matching snap_active_viewport_to_angles) is
-        //   (cos(p)*sin(y), +cos(p)*cos(y), sin(p))  ← Y has opposite sign.
-        // Negate Y when writing back so camera_for_viewport round-trips correctly.
+        // `camera_for_viewport` reconstructs the rotation so that
+        // `rotation * Z == view_direction` exactly (its `yaw = atan2(x, -y)`
+        // cancels the sign). Store `eye` directly so the orbit round-trips —
+        // negating Y here made each drag step read back a Y-mirrored camera,
+        // flipping the model between a rotation and its opposite every frame.
         let eye = cam.rotation * glam::Vec3::Z;
         if let Some(acadrust::EntityType::Viewport(vp)) = self.document.get_entity_mut(vp_handle) {
             if vp.status.locked {
                 return;
             }
             vp.view_direction.x = eye.x as f64;
-            vp.view_direction.y = -eye.y as f64;
+            vp.view_direction.y = eye.y as f64;
             vp.view_direction.z = eye.z as f64;
         }
     }
@@ -5699,12 +5705,37 @@ impl Scene {
                         camera,
                         render_mode: model_mode,
                         active: i == active,
+                        paper_sheet: false,
                     }
                 })
                 .collect();
         }
         let layout_block = self.current_layout_block_handle();
         let mut out: Vec<ViewportInstance> = Vec::new();
+        // The full-canvas sheet viewport renders the paper-space entities
+        // themselves — the layout's own view, drawn first so the floating
+        // content viewports overlay it. Its camera keeps the paper pan/zoom
+        // (target + ortho size) but is LOCKED to the top/plan orientation:
+        // paper is 2-D, so the sheet never orbits.
+        let mut sheet_cam = self.camera.borrow().clone();
+        sheet_cam.yaw = 0.0;
+        sheet_cam.pitch = std::f32::consts::FRAC_PI_2;
+        sheet_cam.rotation = camera::yaw_pitch_to_quat(0.0, std::f32::consts::FRAC_PI_2, 0.0);
+        sheet_cam.projection = camera::Projection::Orthographic;
+        out.push(ViewportInstance {
+            handle: Handle::NULL,
+            tile_idx: None,
+            screen_rect: iced::Rectangle {
+                x: 0.0,
+                y: 0.0,
+                width: canvas_w,
+                height: canvas_h,
+            },
+            camera: sheet_cam,
+            render_mode: acadrust::entities::ViewportRenderMode::Wireframe2D,
+            active: false,
+            paper_sheet: true,
+        });
         for e in self.document.entities() {
             let EntityType::Viewport(vp) = e else {
                 continue;
@@ -5728,6 +5759,7 @@ impl Scene {
                 camera,
                 render_mode: vp.render_mode,
                 active: self.active_viewport == Some(h),
+                paper_sheet: false,
             });
         }
         out
@@ -5796,6 +5828,7 @@ impl Scene {
     /// All wires needed to render the paper-space canvas (2D widget path).
     /// Includes paper entities, paper boundary, inactive viewport projections
     /// (excluding the active MSPACE viewport), plus interim/preview wires.
+    #[allow(dead_code)] // superseded by the GPU sheet viewport; removed in Stage 2.
     pub fn paper_canvas_wires(&self) -> Arc<Vec<WireModel>> {
         {
             let cache = self.paper_canvas_cache.borrow();
@@ -5919,6 +5952,7 @@ impl Scene {
         Arc::new(models)
     }
 
+    #[allow(dead_code)] // superseded by the GPU sheet viewport; removed in Stage 2.
     pub(super) fn paper_sheet_wires(&self) -> Vec<WireModel> {
         (*self.paper_sheet_wires_arc()).clone()
     }

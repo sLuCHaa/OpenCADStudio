@@ -1951,11 +1951,17 @@ impl OpenCADStudio {
                                 drop(sel);
                                 self.tabs[i].scene.orbit_active_viewport(dx, dy);
                                 return Task::none();
-                            } else {
+                            } else if self.tabs[i].scene.current_layout == "Model" {
                                 sel.right_last_pos = Some(p);
                                 drop(sel);
                                 self.tabs[i].scene.camera.borrow_mut().orbit(dx, dy);
                                 self.tabs[i].scene.camera_generation += 1;
+                                return Task::none();
+                            } else {
+                                // Paper sheet is top-locked: right-drag never
+                                // orbits it (orbiting would corrupt the camera
+                                // frame and skew subsequent pans).
+                                sel.right_last_pos = Some(p);
                                 return Task::none();
                             }
                         } else {

@@ -597,6 +597,11 @@ impl Scene {
                 1.0
             };
             self.model_tile_wires_arc(tile_idx, &inst.camera, aspect, full.height)
+        } else if inst.paper_sheet {
+            // The sheet renders the paper block's own entities + viewport
+            // borders — NOT the projected viewport content (the GPU content
+            // viewports draw that themselves).
+            self.paper_sheet_wires_arc()
         } else if inst.handle == acadrust::Handle::NULL {
             self.entity_wires_arc()
         } else {
@@ -648,13 +653,22 @@ impl Scene {
             height: visible_h / canvas.1,
         };
 
+        // Stage 1: the paper sheet instance contributes only entity wires; its
+        // hatch / wipeout / image fills are still drawn by PaperCanvas beneath
+        // the shader. (Stage 2 moves those into the shader and drops PaperCanvas.)
+        let (hatches, wipeout_hatches, images) = if inst.paper_sheet {
+            (Arc::new(Vec::new()), Arc::new(Vec::new()), Arc::new(Vec::new()))
+        } else {
+            (self.hatch_models_arc(), self.wipeout_models_arc(), self.images_arc())
+        };
+
         Some(ViewportData {
             wires: all_wires,
             face3d_wires: Arc::new(face3d_wires),
             draw_depths: self.draw_depth_map(),
-            hatches: self.hatch_models_arc(),
-            wipeout_hatches: self.wipeout_models_arc(),
-            images: self.images_arc(),
+            hatches,
+            wipeout_hatches,
+            images,
             meshes: self.meshes_arc(),
             uniforms,
             cam_rotation: inst.camera.view_rotation_mat(),

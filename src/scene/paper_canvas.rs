@@ -100,62 +100,9 @@ impl<'a> canvas::Program<Message> for PaperCanvas<'a> {
             draw_hatch(&mut frame, hatch, &to_px);
         }
 
-        // px-per-world-unit scale for linetype dash lengths.
-        let world_to_px_scale = if half_w > 0.0 {
-            bounds.width / (2.0 * half_w)
-        } else {
-            1.0
-        };
-
-        // ── Wires (entity lines + inactive viewport projections) ──────────────
-        for wire in self.scene.paper_canvas_wires().iter() {
-            let [r, g, b, a] = wire.color;
-            let color = Color { r, g, b, a };
-
-            let path = canvas::Path::new(|b| {
-                let mut started = false;
-                for &[wx, wy, _] in &wire.points {
-                    if wx.is_nan() || wy.is_nan() {
-                        started = false;
-                        continue;
-                    }
-                    let p = to_px(wx, wy);
-                    if started {
-                        b.line_to(p);
-                    } else {
-                        b.move_to(p);
-                        started = true;
-                    }
-                }
-            });
-
-            // Convert WireModel linetype pattern (world units) to pixel lengths.
-            // Keep the Vec alive for the duration of frame.stroke().
-            let dash_segments: Vec<f32> = if wire.pattern_length > 0.0 {
-                wire.pattern
-                    .iter()
-                    .take_while(|&&v| v != 0.0)
-                    .map(|&v| v.abs() * world_to_px_scale)
-                    .collect()
-            } else {
-                vec![]
-            };
-
-            frame.stroke(
-                &path,
-                canvas::Stroke {
-                    style: canvas::Style::Solid(color),
-                    width: wire.line_weight_px.max(1.0),
-                    line_cap: canvas::LineCap::Square,
-                    line_join: canvas::LineJoin::Miter,
-                    line_dash: canvas::LineDash {
-                        segments: &dash_segments,
-                        offset: 0,
-                    },
-                },
-            );
-        }
-
+        // Entity lines, viewport borders and interim/preview wires are now
+        // rendered by the GPU shader's full-canvas paper "sheet" viewport, so
+        // the 2-D canvas only paints the desk + sheet + fills beneath it.
         vec![frame.into_geometry()]
     }
 }
