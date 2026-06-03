@@ -23,6 +23,7 @@ dependencies = [
  "iced",
  "image",
  "inventory",
+ "lzma-sys",
  "open",
  "printpdf",
  "rayon",

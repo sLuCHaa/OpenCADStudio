@@ -5,6 +5,13 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
+# vtkio (pulled in transitively via truck-meshalgo) depends on xz2 → lzma-sys,
+# which by default links the system liblzma dynamically. On macOS that bakes a
+# Homebrew dylib path (/opt/homebrew/.../liblzma.5.dylib) into the binary, so
+# the .app crashes on launch on machines without that exact library (#56).
+# Forcing the `static` feature builds liblzma from the bundled source, making
+# the binary self-contained on every platform.
+lzma-sys = { version = "0.1", features = ["static"] }
 iced = { version = "0.14", features = ["debug", "image", "svg", "advanced", "canvas", "smol"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.33", features = ["bytemuck"] }
