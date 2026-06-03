@@ -90,6 +90,46 @@ pub struct DimStyleValues<'a> {
     pub dimtdec: &'a str,
     pub dimtfac: &'a str,
     pub annotative: bool,
+    pub dimclrd: &'a str,
+    pub dimlwd: &'a str,
+    pub dimclre: &'a str,
+    pub dimlwe: &'a str,
+    pub dimfxl: &'a str,
+    pub dimfxlon: bool,
+    pub dimsah: bool,
+    pub dimarcsym: &'a str,
+    pub dimjogang: &'a str,
+    pub dimclrt: &'a str,
+    pub dimjust: &'a str,
+    pub dimtvp: &'a str,
+    pub dimtfill: &'a str,
+    pub dimtfillclr: &'a str,
+    pub dimtxtdirection: bool,
+    pub dimatfit: &'a str,
+    pub dimtix: bool,
+    pub dimsoxd: bool,
+    pub dimtmove: &'a str,
+    pub dimupt: bool,
+    pub dimtofl: bool,
+    pub dimfit: &'a str,
+    pub dimdsep: &'a str,
+    pub dimrnd: &'a str,
+    pub dimzin: &'a str,
+    pub dimfrac: &'a str,
+    pub dimaunit: &'a str,
+    pub dimadec: &'a str,
+    pub dimazin: &'a str,
+    pub dimalt: bool,
+    pub dimaltf: &'a str,
+    pub dimaltd: &'a str,
+    pub dimaltu: &'a str,
+    pub dimalttd: &'a str,
+    pub dimaltrnd: &'a str,
+    pub dimapost: &'a str,
+    pub dimaltz: &'a str,
+    pub dimalttz: &'a str,
+    pub dimtolj: &'a str,
+    pub dimtzin: &'a str,
 }
 
 fn btn_s(accent: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
@@ -309,6 +349,10 @@ pub fn view_window<'a>(
             .on_press(Message::DimStyleDialogTab(4))
             .style(tab_btn_style(tab == 4))
             .padding([4, 10]),
+        button(text("Alternate").size(11))
+            .on_press(Message::DimStyleDialogTab(5))
+            .style(tab_btn_style(tab == 5))
+            .padding([4, 10]),
     ]
     .spacing(2);
 
@@ -370,6 +414,12 @@ pub fn view_window<'a>(
             .align_y(iced::Center),
             chk("Suppress 1st line (DIMSE1)", vals.dimse1, DsField::Dimse1),
             chk("Suppress 2nd line (DIMSE2)", vals.dimse2, DsField::Dimse2),
+            row![lbl("Dim line color ACI (DIMCLRD)"), mk_field(DsField::Dimclrd, vals.dimclrd)].spacing(8).align_y(iced::Center),
+            row![lbl("Dim line weight (DIMLWD)"), mk_field(DsField::Dimlwd, vals.dimlwd)].spacing(8).align_y(iced::Center),
+            row![lbl("Ext line color ACI (DIMCLRE)"), mk_field(DsField::Dimclre, vals.dimclre)].spacing(8).align_y(iced::Center),
+            row![lbl("Ext line weight (DIMLWE)"), mk_field(DsField::Dimlwe, vals.dimlwe)].spacing(8).align_y(iced::Center),
+            chk("Fixed-length ext lines (DIMFXLON)", vals.dimfxlon, DsField::Dimfxlon),
+            row![lbl("Fixed length (DIMFXL)"), mk_field(DsField::Dimfxl, vals.dimfxl)].spacing(8).align_y(iced::Center),
         ]
         .spacing(7)
         .into(),
@@ -393,6 +443,9 @@ pub fn view_window<'a>(
             ]
             .spacing(8)
             .align_y(iced::Center),
+            chk("Separate arrow blocks (DIMSAH)", vals.dimsah, DsField::Dimsah),
+            row![lbl("Arc length symbol (DIMARCSYM)"), mk_field(DsField::Dimarcsym, vals.dimarcsym)].spacing(8).align_y(iced::Center),
+            row![lbl("Jog angle ° (DIMJOGANG)"), mk_field(DsField::Dimjogang, vals.dimjogang)].spacing(8).align_y(iced::Center),
         ]
         .spacing(7)
         .into(),
@@ -418,6 +471,12 @@ pub fn view_window<'a>(
             .align_y(iced::Center),
             chk("Horizontal inside (DIMTIH)", vals.dimtih, DsField::Dimtih),
             chk("Horizontal outside (DIMTOH)", vals.dimtoh, DsField::Dimtoh),
+            row![lbl("Text color ACI (DIMCLRT)"), mk_field(DsField::Dimclrt, vals.dimclrt)].spacing(8).align_y(iced::Center),
+            row![lbl("Horizontal just (DIMJUST)"), mk_field(DsField::Dimjust, vals.dimjust)].spacing(8).align_y(iced::Center),
+            row![lbl("Vertical pos (DIMTVP)"), mk_field(DsField::Dimtvp, vals.dimtvp)].spacing(8).align_y(iced::Center),
+            row![lbl("Text fill mode (DIMTFILL)"), mk_field(DsField::Dimtfill, vals.dimtfill)].spacing(8).align_y(iced::Center),
+            row![lbl("Fill color ACI (DIMTFILLCLR)"), mk_field(DsField::Dimtfillclr, vals.dimtfillclr)].spacing(8).align_y(iced::Center),
+            chk("Left-to-right (DIMTXTDIRECTION)", vals.dimtxtdirection, DsField::Dimtxtdirection),
         ]
         .spacing(7)
         .into(),
@@ -455,6 +514,35 @@ pub fn view_window<'a>(
             ]
             .spacing(8)
             .align_y(iced::Center),
+            row![lbl("Decimal sep ASCII (DIMDSEP)"), mk_field(DsField::Dimdsep, vals.dimdsep)].spacing(8).align_y(iced::Center),
+            row![lbl("Round off (DIMRND)"), mk_field(DsField::Dimrnd, vals.dimrnd)].spacing(8).align_y(iced::Center),
+            row![lbl("Zero suppress (DIMZIN)"), mk_field(DsField::Dimzin, vals.dimzin)].spacing(8).align_y(iced::Center),
+            row![lbl("Fraction format (DIMFRAC)"), mk_field(DsField::Dimfrac, vals.dimfrac)].spacing(8).align_y(iced::Center),
+            row![lbl("Angular unit (DIMAUNIT)"), mk_field(DsField::Dimaunit, vals.dimaunit)].spacing(8).align_y(iced::Center),
+            row![lbl("Angular decimals (DIMADEC)"), mk_field(DsField::Dimadec, vals.dimadec)].spacing(8).align_y(iced::Center),
+            row![lbl("Angular zero supp (DIMAZIN)"), mk_field(DsField::Dimazin, vals.dimazin)].spacing(8).align_y(iced::Center),
+            text("Fit").size(11).color(ACCENT),
+            row![lbl("Fit (DIMATFIT)"), mk_field(DsField::Dimatfit, vals.dimatfit)].spacing(8).align_y(iced::Center),
+            row![lbl("Text movement (DIMTMOVE)"), mk_field(DsField::Dimtmove, vals.dimtmove)].spacing(8).align_y(iced::Center),
+            row![lbl("Fit (legacy DIMFIT)"), mk_field(DsField::Dimfit, vals.dimfit)].spacing(8).align_y(iced::Center),
+            chk("Force text inside (DIMTIX)", vals.dimtix, DsField::Dimtix),
+            chk("Suppress outside arrows (DIMSOXD)", vals.dimsoxd, DsField::Dimsoxd),
+            chk("Place text manually (DIMUPT)", vals.dimupt, DsField::Dimupt),
+            chk("Dim line between ext (DIMTOFL)", vals.dimtofl, DsField::Dimtofl),
+        ]
+        .spacing(7)
+        .into(),
+        5 => column![
+            text("Alternate Units").size(11).color(ACCENT),
+            chk("Enable alternate units (DIMALT)", vals.dimalt, DsField::Dimalt),
+            row![lbl("Multiplier (DIMALTF)"), mk_field(DsField::Dimaltf, vals.dimaltf)].spacing(8).align_y(iced::Center),
+            row![lbl("Decimals (DIMALTD)"), mk_field(DsField::Dimaltd, vals.dimaltd)].spacing(8).align_y(iced::Center),
+            row![lbl("Unit format (DIMALTU)"), mk_field(DsField::Dimaltu, vals.dimaltu)].spacing(8).align_y(iced::Center),
+            row![lbl("Tol decimals (DIMALTTD)"), mk_field(DsField::Dimalttd, vals.dimalttd)].spacing(8).align_y(iced::Center),
+            row![lbl("Round off (DIMALTRND)"), mk_field(DsField::Dimaltrnd, vals.dimaltrnd)].spacing(8).align_y(iced::Center),
+            row![lbl("Suffix (DIMAPOST)"), mk_field(DsField::Dimapost, vals.dimapost)].spacing(8).align_y(iced::Center),
+            row![lbl("Zero suppress (DIMALTZ)"), mk_field(DsField::Dimaltz, vals.dimaltz)].spacing(8).align_y(iced::Center),
+            row![lbl("Tol zero supp (DIMALTTZ)"), mk_field(DsField::Dimalttz, vals.dimalttz)].spacing(8).align_y(iced::Center),
         ]
         .spacing(7)
         .into(),
@@ -486,6 +574,8 @@ pub fn view_window<'a>(
             ]
             .spacing(8)
             .align_y(iced::Center),
+            row![lbl("Tol. vert just (DIMTOLJ)"), mk_field(DsField::Dimtolj, vals.dimtolj)].spacing(8).align_y(iced::Center),
+            row![lbl("Tol. zero supp (DIMTZIN)"), mk_field(DsField::Dimtzin, vals.dimtzin)].spacing(8).align_y(iced::Center),
         ]
         .spacing(7)
         .into(),

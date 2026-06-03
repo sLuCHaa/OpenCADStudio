@@ -6517,6 +6517,46 @@ impl OpenCADStudio {
         self.ds_dimtdec = format!("{}", ds.dimtdec);
         self.ds_dimtfac = format!("{}", ds.dimtfac);
         self.ds_annotative = ds.annotative;
+        self.ds_dimclrd = format!("{}", ds.dimclrd);
+        self.ds_dimlwd = format!("{}", ds.dimlwd);
+        self.ds_dimclre = format!("{}", ds.dimclre);
+        self.ds_dimlwe = format!("{}", ds.dimlwe);
+        self.ds_dimfxl = format!("{}", ds.dimfxl);
+        self.ds_dimfxlon = ds.dimfxlon;
+        self.ds_dimsah = ds.dimsah;
+        self.ds_dimarcsym = format!("{}", ds.dimarcsym);
+        self.ds_dimjogang = format!("{}", ds.dimjogang.to_degrees());
+        self.ds_dimclrt = format!("{}", ds.dimclrt);
+        self.ds_dimjust = format!("{}", ds.dimjust);
+        self.ds_dimtvp = format!("{}", ds.dimtvp);
+        self.ds_dimtfill = format!("{}", ds.dimtfill);
+        self.ds_dimtfillclr = format!("{}", ds.dimtfillclr);
+        self.ds_dimtxtdirection = ds.dimtxtdirection;
+        self.ds_dimatfit = format!("{}", ds.dimatfit);
+        self.ds_dimtix = ds.dimtix;
+        self.ds_dimsoxd = ds.dimsoxd;
+        self.ds_dimtmove = format!("{}", ds.dimtmove);
+        self.ds_dimupt = ds.dimupt;
+        self.ds_dimtofl = ds.dimtofl;
+        self.ds_dimfit = format!("{}", ds.dimfit);
+        self.ds_dimdsep = format!("{}", ds.dimdsep);
+        self.ds_dimrnd = format!("{}", ds.dimrnd);
+        self.ds_dimzin = format!("{}", ds.dimzin);
+        self.ds_dimfrac = format!("{}", ds.dimfrac);
+        self.ds_dimaunit = format!("{}", ds.dimaunit);
+        self.ds_dimadec = format!("{}", ds.dimadec);
+        self.ds_dimazin = format!("{}", ds.dimazin);
+        self.ds_dimalt = ds.dimalt;
+        self.ds_dimaltf = format!("{}", ds.dimaltf);
+        self.ds_dimaltd = format!("{}", ds.dimaltd);
+        self.ds_dimaltu = format!("{}", ds.dimaltu);
+        self.ds_dimalttd = format!("{}", ds.dimalttd);
+        self.ds_dimaltrnd = format!("{}", ds.dimaltrnd);
+        self.ds_dimapost = ds.dimapost.clone();
+        self.ds_dimaltz = format!("{}", ds.dimaltz);
+        self.ds_dimalttz = format!("{}", ds.dimalttz);
+        self.ds_dimtolj = format!("{}", ds.dimtolj);
+        self.ds_dimtzin = format!("{}", ds.dimtzin);
     }
 
     /// Write edit buffers back into the selected dim style document entry.
@@ -6569,6 +6609,48 @@ impl OpenCADStudio {
         ds.dimpost = self.ds_dimpost.clone();
         ds.dimtxsty = self.ds_dimtxsty.clone();
         ds.annotative = self.ds_annotative;
+        set_i16!(dimclrd, self.ds_dimclrd);
+        set_i16!(dimlwd, self.ds_dimlwd);
+        set_i16!(dimclre, self.ds_dimclre);
+        set_i16!(dimlwe, self.ds_dimlwe);
+        set_f64!(dimfxl, self.ds_dimfxl);
+        set_i16!(dimarcsym, self.ds_dimarcsym);
+        set_i16!(dimclrt, self.ds_dimclrt);
+        set_i16!(dimjust, self.ds_dimjust);
+        set_f64!(dimtvp, self.ds_dimtvp);
+        set_i16!(dimtfill, self.ds_dimtfill);
+        set_i16!(dimtfillclr, self.ds_dimtfillclr);
+        set_i16!(dimatfit, self.ds_dimatfit);
+        set_i16!(dimtmove, self.ds_dimtmove);
+        set_i16!(dimfit, self.ds_dimfit);
+        set_i16!(dimdsep, self.ds_dimdsep);
+        set_f64!(dimrnd, self.ds_dimrnd);
+        set_i16!(dimzin, self.ds_dimzin);
+        set_i16!(dimfrac, self.ds_dimfrac);
+        set_i16!(dimaunit, self.ds_dimaunit);
+        set_i16!(dimadec, self.ds_dimadec);
+        set_i16!(dimazin, self.ds_dimazin);
+        set_f64!(dimaltf, self.ds_dimaltf);
+        set_i16!(dimaltd, self.ds_dimaltd);
+        set_i16!(dimaltu, self.ds_dimaltu);
+        set_i16!(dimalttd, self.ds_dimalttd);
+        set_f64!(dimaltrnd, self.ds_dimaltrnd);
+        set_i16!(dimaltz, self.ds_dimaltz);
+        set_i16!(dimalttz, self.ds_dimalttz);
+        set_i16!(dimtolj, self.ds_dimtolj);
+        set_i16!(dimtzin, self.ds_dimtzin);
+        if let Ok(v) = self.ds_dimjogang.trim().parse::<f64>() {
+            ds.dimjogang = v.to_radians();
+        }
+        ds.dimfxlon = self.ds_dimfxlon;
+        ds.dimsah = self.ds_dimsah;
+        ds.dimtxtdirection = self.ds_dimtxtdirection;
+        ds.dimtix = self.ds_dimtix;
+        ds.dimsoxd = self.ds_dimsoxd;
+        ds.dimupt = self.ds_dimupt;
+        ds.dimtofl = self.ds_dimtofl;
+        ds.dimalt = self.ds_dimalt;
+        ds.dimapost = self.ds_dimapost.clone();
         self.tabs[tab].dirty = true;
         self.command_line
             .push_output(&format!("DimStyle '{}' updated.", self.dimstyle_selected));
@@ -6598,6 +6680,38 @@ impl OpenCADStudio {
             Dimtm => self.ds_dimtm = val,
             Dimtdec => self.ds_dimtdec = val,
             Dimtfac => self.ds_dimtfac = val,
+            Dimclrd => self.ds_dimclrd = val,
+            Dimlwd => self.ds_dimlwd = val,
+            Dimclre => self.ds_dimclre = val,
+            Dimlwe => self.ds_dimlwe = val,
+            Dimfxl => self.ds_dimfxl = val,
+            Dimarcsym => self.ds_dimarcsym = val,
+            Dimjogang => self.ds_dimjogang = val,
+            Dimclrt => self.ds_dimclrt = val,
+            Dimjust => self.ds_dimjust = val,
+            Dimtvp => self.ds_dimtvp = val,
+            Dimtfill => self.ds_dimtfill = val,
+            Dimtfillclr => self.ds_dimtfillclr = val,
+            Dimatfit => self.ds_dimatfit = val,
+            Dimtmove => self.ds_dimtmove = val,
+            Dimfit => self.ds_dimfit = val,
+            Dimdsep => self.ds_dimdsep = val,
+            Dimrnd => self.ds_dimrnd = val,
+            Dimzin => self.ds_dimzin = val,
+            Dimfrac => self.ds_dimfrac = val,
+            Dimaunit => self.ds_dimaunit = val,
+            Dimadec => self.ds_dimadec = val,
+            Dimazin => self.ds_dimazin = val,
+            Dimaltf => self.ds_dimaltf = val,
+            Dimaltd => self.ds_dimaltd = val,
+            Dimaltu => self.ds_dimaltu = val,
+            Dimalttd => self.ds_dimalttd = val,
+            Dimaltrnd => self.ds_dimaltrnd = val,
+            Dimapost => self.ds_dimapost = val,
+            Dimaltz => self.ds_dimaltz = val,
+            Dimalttz => self.ds_dimalttz = val,
+            Dimtolj => self.ds_dimtolj = val,
+            Dimtzin => self.ds_dimtzin = val,
             // Bool fields — no-op for string edit
             _ => {}
         }
@@ -6616,6 +6730,14 @@ impl OpenCADStudio {
             Dimtol => self.ds_dimtol = !self.ds_dimtol,
             Dimlim => self.ds_dimlim = !self.ds_dimlim,
             Annotative => self.ds_annotative = !self.ds_annotative,
+            Dimfxlon => self.ds_dimfxlon = !self.ds_dimfxlon,
+            Dimsah => self.ds_dimsah = !self.ds_dimsah,
+            Dimtxtdirection => self.ds_dimtxtdirection = !self.ds_dimtxtdirection,
+            Dimtix => self.ds_dimtix = !self.ds_dimtix,
+            Dimsoxd => self.ds_dimsoxd = !self.ds_dimsoxd,
+            Dimupt => self.ds_dimupt = !self.ds_dimupt,
+            Dimtofl => self.ds_dimtofl = !self.ds_dimtofl,
+            Dimalt => self.ds_dimalt = !self.ds_dimalt,
             _ => {}
         }
     }
