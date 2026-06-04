@@ -2889,6 +2889,8 @@ impl OpenCADStudio {
                                 vp_mat,
                                 bounds,
                             ));
+                            // Selection filter: keep only allowed types.
+                            handles.retain(|&h| self.tabs[i].scene.passes_selection_filter(h));
                             self.tabs[i].scene.deselect_all();
                             for h in &handles {
                                 self.tabs[i].scene.select_entity(*h, false);
@@ -2932,6 +2934,9 @@ impl OpenCADStudio {
                                     // body, not just the thin projected edges.
                                     self.tabs[i].scene.mesh_click_hit(p, vp_mat, bounds)
                                 });
+                            // Selection filter: drop a pick whose type is excluded.
+                            let hit =
+                                hit.filter(|&h| self.tabs[i].scene.passes_selection_filter(h));
                             if let Some(handle) = hit {
                                 // Individual picks accumulate (issue #47):
                                 // each plain click adds to the selection,
@@ -2980,6 +2985,8 @@ impl OpenCADStudio {
                                 vp_mat,
                                 bounds,
                             ));
+                            // Selection filter: keep only allowed types.
+                            handles.retain(|&h| self.tabs[i].scene.passes_selection_filter(h));
                             self.tabs[i].scene.deselect_all();
                             for h in &handles {
                                 self.tabs[i].scene.select_entity(*h, false);
@@ -3592,6 +3599,21 @@ impl OpenCADStudio {
             }
             Message::ToggleQuickProperties => {
                 self.quick_properties ^= true;
+                Task::none()
+            }
+            Message::ToggleSelectionFilterPopup => {
+                self.selection_filter_popup_open ^= true;
+                Task::none()
+            }
+            Message::CloseSelectionFilterPopup => {
+                self.selection_filter_popup_open = false;
+                Task::none()
+            }
+            Message::ToggleSelectionFilterType(name) => {
+                let f = &mut self.tabs[self.active_tab].scene.selection_filter;
+                if !f.remove(&name) {
+                    f.insert(name);
+                }
                 Task::none()
             }
             Message::ToggleUnitsPopup => {

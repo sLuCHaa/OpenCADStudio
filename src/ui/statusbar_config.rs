@@ -26,6 +26,7 @@ pub enum StatusPill {
     Transparency,
     Isolate,
     QuickProps,
+    SelFilter,
     Vp,
     CleanScreen,
 }
@@ -49,6 +50,7 @@ impl StatusPill {
         StatusPill::Transparency,
         StatusPill::Isolate,
         StatusPill::QuickProps,
+        StatusPill::SelFilter,
         StatusPill::Vp,
         StatusPill::CleanScreen,
     ];
@@ -71,6 +73,7 @@ impl StatusPill {
             StatusPill::Transparency => "transparency",
             StatusPill::Isolate => "isolate",
             StatusPill::QuickProps => "quickprops",
+            StatusPill::SelFilter => "selfilter",
             StatusPill::Vp => "vp",
             StatusPill::CleanScreen => "cleanscreen",
         }
@@ -94,6 +97,7 @@ impl StatusPill {
             StatusPill::Transparency => "Show Transparency",
             StatusPill::Isolate => "Isolate Objects",
             StatusPill::QuickProps => "Quick Properties",
+            StatusPill::SelFilter => "Selection Filtering",
             StatusPill::Vp => "Viewport Count",
             StatusPill::CleanScreen => "Clean Screen",
         }

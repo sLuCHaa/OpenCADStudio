@@ -177,6 +177,8 @@ pub(super) struct OpenCADStudio {
     units_popup_open: bool,
     /// True while the Isolate pill's action menu is open.
     isolate_popup_open: bool,
+    /// True while the selection-filter type picker is open.
+    selection_filter_popup_open: bool,
     /// Clean-screen mode: hide ribbon and side panels for a full canvas.
     clean_screen: bool,
     /// Quick Properties: show a compact floating property panel on selection.
@@ -756,6 +758,12 @@ pub enum Message {
     ToggleTransparencyDisplay,
     /// Toggle the Quick Properties floating panel.
     ToggleQuickProperties,
+    /// Toggle the selection-filter type picker open/closed.
+    ToggleSelectionFilterPopup,
+    /// Close the selection-filter type picker.
+    CloseSelectionFilterPopup,
+    /// Include/exclude an entity type from interactive selection.
+    ToggleSelectionFilterType(String),
     /// Toggle the drawing-units picker open/closed.
     ToggleUnitsPopup,
     /// Close the drawing-units picker.
@@ -1225,6 +1233,7 @@ impl OpenCADStudio {
             statusbar_menu_open: false,
             units_popup_open: false,
             isolate_popup_open: false,
+            selection_filter_popup_open: false,
             statusbar_config: crate::ui::statusbar_config::StatusBarConfig::load(),
             clean_screen: false,
             quick_properties: false,

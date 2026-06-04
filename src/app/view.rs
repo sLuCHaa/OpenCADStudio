@@ -1173,6 +1173,7 @@ impl OpenCADStudio {
                         tab.scene.is_isolation_active(),
                         tab.scene.transparency_display,
                         self.quick_properties,
+                        tab.scene.selection_filter_active(),
                         &self.statusbar_config,
                     )
                 })
@@ -1232,6 +1233,21 @@ impl OpenCADStudio {
             iced::widget::Space::new().width(0).height(0).into()
         };
 
+        let sel_filter_layer: Element<'_, Message> = if self.selection_filter_popup_open {
+            let types: Vec<String> = tab
+                .scene
+                .entity_type_names_in_layout()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+            crate::ui::selection_filter_popup::selection_filter_popup_overlay(
+                types,
+                &tab.scene.selection_filter,
+            )
+        } else {
+            iced::widget::Space::new().width(0).height(0).into()
+        };
+
         let dropdown_layer: Element<'_, Message> = self
             .ribbon
             .dropdown_overlay(
@@ -1270,6 +1286,7 @@ impl OpenCADStudio {
             statusbar_menu_layer,
             units_layer,
             isolate_layer,
+            sel_filter_layer,
             dropdown_layer,
             layout_ctx_layer,
             qselect_layer,

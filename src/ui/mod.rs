@@ -19,6 +19,7 @@ pub mod plotstyle;
 pub mod properties;
 pub mod ribbon;
 pub mod scale_popup;
+pub mod selection_filter_popup;
 pub mod shortcuts;
 pub mod snap_popup;
 pub mod statusbar;

@@ -556,6 +556,9 @@ pub struct Scene {
     /// Whether entity transparency is honoured on screen. When false the
     /// wire shader forces every line opaque (a uniform toggle, no retessellate).
     pub transparency_display: bool,
+    /// Selection filter: entity-type names excluded from interactive picking.
+    /// Empty = every type is selectable.
+    pub selection_filter: HashSet<String>,
     /// In-progress preview wires while a command is active (rubber-band + object ghosts).
     pub preview_wires: Vec<WireModel>,
     /// Committed-segment wire drawn during multi-point commands (normal colour).
@@ -702,6 +705,7 @@ impl Scene {
             selected: HashSet::new(),
             hidden: HashSet::new(),
             transparency_display: true,
+            selection_filter: HashSet::new(),
             preview_wires: vec![],
             interim_wire: None,
             camera_generation: 0,
@@ -4265,6 +4269,25 @@ impl Scene {
             }
         }
         names.into_iter().collect()
+    }
+
+    /// True when `handle`'s entity type is allowed by the selection filter.
+    /// The filter stores excluded type names; empty = everything allowed.
+    pub fn passes_selection_filter(&self, handle: Handle) -> bool {
+        if self.selection_filter.is_empty() {
+            return true;
+        }
+        match self.document.get_entity(handle) {
+            Some(e) => !self
+                .selection_filter
+                .contains(crate::entities::traits::entity_type_name(e)),
+            None => true,
+        }
+    }
+
+    /// True when the selection filter is excluding at least one type.
+    pub fn selection_filter_active(&self) -> bool {
+        !self.selection_filter.is_empty()
     }
 
     /// Returns the list of `(field, label)` pairs the Quick Select

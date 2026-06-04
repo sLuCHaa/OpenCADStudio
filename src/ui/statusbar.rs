@@ -65,6 +65,8 @@ impl StatusBar {
         transparency_display: bool,
         // Whether the Quick Properties floating panel is enabled.
         quick_properties: bool,
+        // True when the selection filter is excluding at least one type.
+        selection_filter_active: bool,
         // Which pills the user has chosen to show on the bar.
         config: &'a StatusBarConfig,
     ) -> Element<'a, Message> {
@@ -199,6 +201,16 @@ impl StatusBar {
             right_status = right_status.push(tip(
                 toggle_pill("QP", quick_properties, Message::ToggleQuickProperties),
                 "Quick Properties\nFloating panel on selection",
+            ));
+        }
+        if vis(StatusPill::SelFilter) {
+            right_status = right_status.push(tip(
+                toggle_pill(
+                    "FILTER",
+                    selection_filter_active,
+                    Message::ToggleSelectionFilterPopup,
+                ),
+                "Selection Filtering\nLimit which object types can be picked",
             ));
         }
         if vis(StatusPill::Vp) && !vp_label.is_empty() {
