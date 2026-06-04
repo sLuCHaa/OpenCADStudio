@@ -7,35 +7,23 @@ use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
 
 use crate::app::Message;
 
-/// (label, annotation_scale_multiplier, viewport_scale_factor)
-/// annotation_scale = multiplier for text/dim sizes (50.0 for "1:50")
-/// vp_scale = custom_scale value on the Viewport entity (0.02 for "1:50")
-const COMMON_SCALES: &[(&str, f32, f64)] = &[
-    ("1:100", 100.0, 0.01),
-    ("1:50", 50.0, 0.02),
-    ("1:20", 20.0, 0.05),
-    ("1:10", 10.0, 0.10),
-    ("1:5", 5.0, 0.20),
-    ("1:2", 2.0, 0.50),
-    ("1:1", 1.0, 1.00),
-    ("2:1", 0.5, 2.00),
-    ("5:1", 0.2, 5.00),
-    ("10:1", 0.1, 10.00),
-];
-
 /// Full-screen overlay: transparent click-catcher + scale list panel pinned bottom-right.
 ///
 /// - `is_model`: true = model space (dispatches SetAnnotationScale), false = paper space (SetViewportScale).
 /// - `current_anno_scale`: current annotation_scale from Scene (used to highlight active row in model space).
 /// - `viewport_scale`: current effective vp scale, view_height-first (used to highlight in paper space).
+/// - `file_scales`: scale list read from the drawing (`ACAD_SCALELIST`). Only
+///   scales actually stored in the file are shown; the picker never injects
+///   scales of its own.
 pub fn scale_popup_overlay(
     is_model: bool,
     current_anno_scale: f32,
     viewport_scale: Option<f64>,
+    file_scales: Vec<(String, f32, f64)>,
 ) -> Element<'static, Message> {
-    let rows: Vec<Element<'static, Message>> = COMMON_SCALES
-        .iter()
-        .map(|&(label, anno_scale, vp_scale)| {
+    let rows: Vec<Element<'static, Message>> = file_scales
+        .into_iter()
+        .map(|(label, anno_scale, vp_scale)| {
             let active = if is_model {
                 (current_anno_scale - anno_scale).abs() < 0.001 * current_anno_scale.max(0.001)
             } else {
@@ -81,7 +69,7 @@ pub fn scale_popup_overlay(
         .into()
 }
 
-fn scale_row(label: &'static str, active: bool, msg: Message) -> Element<'static, Message> {
+fn scale_row(label: String, active: bool, msg: Message) -> Element<'static, Message> {
     let check = text(if active { "✓" } else { "  " })
         .size(11)
         .color(if active {

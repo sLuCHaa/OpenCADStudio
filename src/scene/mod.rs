@@ -1225,6 +1225,37 @@ impl Scene {
         })
     }
 
+    /// Annotation/viewport scales defined in the drawing's scale list
+    /// (the `ACAD_SCALELIST` dictionary), as `(label, annotation_multiplier,
+    /// viewport_factor)`. The annotation multiplier sizes model-space
+    /// text/dims (50.0 for "1:50"); the viewport factor is the paper/drawing
+    /// ratio (0.02 for "1:50"). Sorted smallest ratio first (1:100 … 1:1 …
+    /// 10:1). Empty when the drawing carries no scale list — the caller
+    /// substitutes its built-in defaults.
+    pub fn scale_list(&self) -> Vec<(String, f32, f64)> {
+        let mut list: Vec<(String, f32, f64)> = self
+            .document
+            .objects
+            .values()
+            .filter_map(|o| match o {
+                // Skip xref-derived scales. Scales pulled in from an external
+                // reference get an "_XREF" suffix ("1:50_XREF"); unbound
+                // dependent symbols carry a "xref|name" prefix. Neither
+                // belongs to this drawing's own scale list.
+                ObjectType::Scale(s)
+                    if !s.is_temporary
+                        && !s.name.contains('|')
+                        && !s.name.to_ascii_uppercase().ends_with("_XREF") =>
+                {
+                    Some((s.name.clone(), s.inverse_factor() as f32, s.factor()))
+                }
+                _ => None,
+            })
+            .collect();
+        list.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        list
+    }
+
     /// List of user viewports in the current layout: (handle, label, frozen_layer_handles).
     pub fn viewport_list(&self) -> Vec<(acadrust::Handle, String, Vec<acadrust::Handle>)> {
         if self.current_layout == "Model" {

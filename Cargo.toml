@@ -34,6 +34,7 @@ windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_Window
 
 [patch.crates-io]
 # Tracks HakanSeven12/acadrust main, which carries the hatch
-# boundary-handle cap, raster-image/wipeout clip-vertex fix, and 3DFACE
-# Z-decode fix on top of upstream. Revert to upstream once those PRs land.
+# boundary-handle cap, raster-image/wipeout clip-vertex fix, 3DFACE
+# Z-decode fix, and CANNOSCALE/CANNOSCALEVALUE header support on top of
+# upstream. Revert to upstream once those PRs land.
 acadrust = { git = "https://github.com/HakanSeven12/acadrust", branch = "main" }

@@ -144,6 +144,34 @@ impl OpenCADStudio {
                                 });
                             }
                         }
+
+                        // Drive the viewport scale picker from the drawing's
+                        // own scale list instead of a built-in set.
+                        let file_scales = self.tabs[i].scene.scale_list();
+                        if !file_scales.is_empty() {
+                            let eff = crate::scene::vp_effective_scale(
+                                vp.custom_scale,
+                                vp.view_height,
+                                vp.height,
+                            );
+                            let selected = file_scales
+                                .iter()
+                                .find(|(_, _, f)| (f - eff).abs() < 0.001 * f.max(0.001))
+                                .map(|(n, _, _)| n.clone())
+                                .unwrap_or_default();
+                            let options: Vec<String> =
+                                file_scales.iter().map(|(n, _, _)| n.clone()).collect();
+                            if let Some(geom) = sections.last_mut() {
+                                if let Some(prop) =
+                                    geom.props.iter_mut().find(|p| p.field == "vscale_std")
+                                {
+                                    prop.value = crate::scene::object::PropValue::Choice {
+                                        selected,
+                                        options,
+                                    };
+                                }
+                            }
+                        }
                     }
 
                     // Inject DimStyle picker for Dimension entities.

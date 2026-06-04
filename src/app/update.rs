@@ -163,9 +163,12 @@ impl OpenCADStudio {
 
                 self.tabs[i].current_path = Some(path.clone());
                 self.tabs[i].scene.document = doc;
-                let stored = self.tabs[i].scene.document.header.user_real1;
+                // Current model-space annotation scale comes from the drawing's
+                // CANNOSCALEVALUE (paper/drawing factor); the multiplier we use
+                // for text/dim sizing is its inverse (1:50 -> 0.02 -> 50.0).
+                let cannoscale_value = self.tabs[i].scene.document.header.annotation_scale_value;
                 self.tabs[i].scene.annotation_scale =
-                    if stored > 1e-9 { stored as f32 } else { 1.0 };
+                    if cannoscale_value > 1e-9 { (1.0 / cannoscale_value) as f32 } else { 1.0 };
 
                 // Auto-resolve XREFs relative to the opened file's directory.
                 if let Some(base_dir) = path.parent() {
@@ -632,8 +635,7 @@ impl OpenCADStudio {
                 let (_, version) = crate::io::parse_save_format(&self.save_dialog_format);
                 let close = self.close_save_dialog_window();
                 let i = self.active_tab;
-                self.tabs[i].scene.document.header.user_real1 =
-                    self.tabs[i].scene.annotation_scale as f64;
+                sync_annotation_scale_header(&mut self.tabs[i].scene);
                 match crate::io::save_as_version(&self.tabs[i].scene.document, &path, version) {
                     Ok(()) => {
                         self.command_line
@@ -7691,6 +7693,37 @@ impl OpenCADStudio {
 
 /// Parse a scale string like "1:50" or "2:1" into (numerator, denominator).
 /// Returns (1.0, 1.0) for "Fit" or unknown formats.
+/// Sync the model-space annotation scale into the standard CANNOSCALE /
+/// CANNOSCALEVALUE header variables before a save, so the scale round-trips
+/// through the file (and is read correctly by other CAD applications).
+fn sync_annotation_scale_header(scene: &mut Scene) {
+    let anno = scene.annotation_scale;
+    let value = if anno.abs() > 1e-9 { 1.0 / anno as f64 } else { 1.0 };
+    // Prefer the name of a matching scale already in the drawing's list;
+    // fall back to a formatted ratio when none matches.
+    let name = scene
+        .scale_list()
+        .into_iter()
+        .find(|(_, a, _)| (a - anno).abs() < 0.001 * anno.max(0.001))
+        .map(|(n, _, _)| n)
+        .unwrap_or_else(|| format_annotation_scale_name(anno));
+    let hdr = &mut scene.document.header;
+    hdr.current_annotation_scale = name;
+    hdr.annotation_scale_value = value;
+}
+
+/// Format an annotation-scale multiplier as a ratio name: 50.0 -> "1:50",
+/// 0.5 -> "2:1", 1.0 -> "1:1".
+fn format_annotation_scale_name(anno: f32) -> String {
+    if anno >= 1.0 {
+        format!("1:{}", anno.round() as i64)
+    } else if anno > 0.0 {
+        format!("{}:1", (1.0 / anno).round() as i64)
+    } else {
+        "1:1".to_string()
+    }
+}
+
 fn parse_plot_scale(s: &str) -> (f64, f64) {
     if s == "Fit" {
         return (1.0, 1.0);

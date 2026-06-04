@@ -1163,6 +1163,7 @@ impl OpenCADStudio {
                 is_model,
                 tab.scene.annotation_scale,
                 tab.scene.first_viewport_scale(),
+                tab.scene.scale_list(),
             )
         } else {
             iced::widget::Space::new().width(0).height(0).into()
