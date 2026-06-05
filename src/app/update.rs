@@ -1325,7 +1325,7 @@ impl OpenCADStudio {
                         }
                         self.tabs[i].scene.hidden.remove(&h);
                         self.tabs[i].scene.clear_preview_wire();
-                        self.tabs[i].scene.bump_geometry();
+                        self.tabs[i].scene.bump_geometry_no_blocks();
                         self.refresh_selected_grips();
                     }
                     self.tabs[self.active_tab].snap_result = None;
@@ -2127,7 +2127,9 @@ impl OpenCADStudio {
                         self.grip_original =
                             self.tabs[i].scene.document.get_entity(grip.handle).cloned();
                         self.tabs[i].scene.hidden.insert(grip.handle);
-                        self.tabs[i].scene.bump_geometry();
+                        // Grip drag never changes a block definition — keep the
+                        // block cache so the hide doesn't re-tessellate blocks.
+                        self.tabs[i].scene.bump_geometry_no_blocks();
                         self.grip_preview_handle = Some(grip.handle);
                     }
 
@@ -2650,7 +2652,7 @@ impl OpenCADStudio {
                         self.grip_original = None;
                         self.tabs[i].scene.hidden.remove(&h);
                         self.tabs[i].scene.clear_preview_wire();
-                        self.tabs[i].scene.bump_geometry();
+                        self.tabs[i].scene.bump_geometry_no_blocks();
                     }
                     // Placement confirmed — keep the just-added leader.
                     self.grip_add_provisional = None;

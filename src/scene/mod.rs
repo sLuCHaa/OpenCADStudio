@@ -616,6 +616,13 @@ pub struct Scene {
     /// preview wires, layer visibility, layout). The GPU pipeline uses this to
     /// skip re-uploading unchanged geometry buffers every frame.
     pub geometry_epoch: u64,
+    /// Separate epoch for the (expensive) block-definition tessellation cache.
+    /// Bumped together with `geometry_epoch` by `bump_geometry`, but NOT by
+    /// `bump_geometry_no_blocks` — so edits that provably can't change any
+    /// block definition (drawing a top-level entity, grip-moving an
+    /// entity/insert) re-tessellate only the visible wires (~baseline cost)
+    /// instead of rebuilding every block defn (the edit-time spike).
+    pub block_epoch: u64,
     /// Incremented when the selection / hover-highlight set changes WITHOUT a
     /// geometry change. The wire tessellation is selection-independent, so a
     /// pick only refreshes the GPU xray overlay (cheap) instead of bumping
@@ -796,6 +803,7 @@ impl Scene {
             interim_wire: None,
             camera_generation: 0,
             geometry_epoch: GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed),
+            block_epoch: GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed),
             selection_generation: 0,
             wire_cache: RefCell::new(None),
             model_tile_wire_cache: RefCell::new(HashMap::default()),
@@ -920,7 +928,7 @@ impl Scene {
         {
             let cache = self.block_defn_cache.borrow();
             if let Some((epoch, ref arc)) = *cache {
-                if epoch == self.geometry_epoch {
+                if epoch == self.block_epoch {
                     return Arc::clone(arc);
                 }
             }
@@ -937,11 +945,22 @@ impl Scene {
         };
         let built = block_cache::BlockCache::build(&self.document, anno, bg);
         let arc = Arc::new(built);
-        *self.block_defn_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        *self.block_defn_cache.borrow_mut() = Some((self.block_epoch, Arc::clone(&arc)));
         arc
     }
 
     pub fn bump_geometry(&mut self) {
+        self.geometry_epoch = GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        // Default: also invalidate block definitions. Safe for every caller;
+        // operations that know blocks are untouched use `bump_geometry_no_blocks`.
+        self.block_epoch = GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Invalidate the visible-wire tessellation but KEEP the cached block
+    /// definitions. Use only when the edit provably can't change any block
+    /// defn (top-level entity create/edit, grip-moving an entity or insert) —
+    /// it skips the all-blocks re-tessellation that otherwise spikes edit time.
+    pub fn bump_geometry_no_blocks(&mut self) {
         self.geometry_epoch = GEOMETRY_EPOCH.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -3251,6 +3270,14 @@ impl Scene {
     // ── Entity management ─────────────────────────────────────────────────
 
     pub fn add_entity(&mut self, mut entity: EntityType) -> Handle {
+        // Only Insert / Block entities can introduce or reference a block
+        // definition that the block cache must (re)build. Adding a plain
+        // top-level entity (line, arc, text, …) leaves every block defn intact,
+        // so it keeps the cache and skips the all-blocks re-tessellation.
+        let affects_blocks = matches!(
+            &entity,
+            EntityType::Insert(_) | EntityType::Block(_) | EntityType::BlockEnd(_)
+        );
         let hatch_offset = if self.current_layout == "Model" {
             self.world_offset
         } else {
@@ -3325,7 +3352,11 @@ impl Scene {
             if let Some(model) = mesh_seed {
                 self.meshes.insert(handle, model);
             }
-            self.bump_geometry();
+            if affects_blocks {
+                self.bump_geometry();
+            } else {
+                self.bump_geometry_no_blocks();
+            }
         }
         handle
     }

@@ -132,6 +132,18 @@ handles; the render path re-tessellates only those, reusing the rest.
 Also useful on open: any partial cache (e.g. from block defns) can be
 re-used.
 
+**Partial (landed): block cache survives non-block edits.** The
+block-definition tessellation cache (`BlockCache::build`, every block defn)
+was keyed on `geometry_epoch`, so *any* edit rebuilt all block defns — a
+~30 ms baseline wire re-tess turned into a ~400 ms spike on block-heavy
+drawings at line-commit / grip-start / grip-release. The cache now keys on a
+separate `block_epoch`. `bump_geometry` bumps both (safe default); the
+operations that provably can't change a block defn — adding a top-level
+entity (`add_entity` for non-Insert/Block) and grip-moving an entity/insert —
+call `bump_geometry_no_blocks`, which re-tessellates only the visible wires
+(block cache reused). Block-content edits (REFCLOSE, block create, xref,
+explode) still go through full `bump_geometry`.
+
 **Partial (landed): grip drag.** Dragging an entity's grip called
 `scene.apply_grip` every move, which `bump_geometry`'d → a full model
 re-tessellation per move (plus an O(N) clone of all wires for snapping). Now
