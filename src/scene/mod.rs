@@ -73,6 +73,15 @@ use std::sync::Arc;
 /// GPU Pipeline to skip re-uploading geometry when switching tabs.
 static GEOMETRY_EPOCH: AtomicU64 = AtomicU64::new(1);
 
+/// Process-wide monotonic id stamped on each Model-tile wire re-tessellation.
+/// Reused (not re-stamped) when a pan reuses the cached tessellation, so it
+/// uniquely identifies a wire-buffer's *content* across frames. The GPU
+/// pipeline gates wire re-upload on it (Phase 3.2): a pan that reuses the
+/// tessellation keeps the same id, so the world-space wire buffer is not
+/// re-sent. Monotonic (never reused) → free of the ABA hazard a raw `Arc`
+/// pointer would carry when an address is freed and reallocated.
+static WIRE_CONTENT_GEN: AtomicU64 = AtomicU64::new(1);
+
 /// Resolve a viewport's paper-to-model scale ratio from its two
 /// DXF-derived sources.
 ///
@@ -624,7 +633,7 @@ pub struct Scene {
     /// the tessellation instead of rebuilding it. Zoom / orbit / edits change
     /// the epoch or signature and rebuild as before.
     model_tile_wire_cache:
-        RefCell<HashMap<usize, ((u64, u64, [f32; 4]), Arc<Vec<WireModel>>)>>,
+        RefCell<HashMap<usize, ((u64, u64, [f32; 4]), u64, Arc<Vec<WireModel>>)>>,
     /// Index built from every SortEntitiesTable in the document.
     /// Maps block_handle → (entity_handle.value() → sort_handle.value()).
     /// Replaces the O(objects) linear scan inside `wires_for_block()` with an O(1) lookup.
@@ -732,6 +741,17 @@ pub struct Scene {
     pub(crate) last_tess_ms: std::cell::Cell<f32>,
     /// Wire count produced by that most recent re-tessellation.
     pub(crate) last_tess_wires: std::cell::Cell<usize>,
+    /// Content id ([`WIRE_CONTENT_GEN`]) of the Model-tile wire set returned by
+    /// the most recent `model_tile_wires_arc` call — stamped on a miss, reused
+    /// on a pan-hit. `build_primitive` reads it right after the call to gate
+    /// GPU wire re-upload (Phase 3.2). 0 = none yet.
+    pub(crate) last_model_wire_gen: std::cell::Cell<u64>,
+    /// Monotonic per-build nonce for wire sources that must NOT be skipped by
+    /// the Phase 3.2 upload gate — the paper / per-viewport wire paths and any
+    /// frame carrying live preview / interim wires. High bit set so it can
+    /// never collide with a real [`WIRE_CONTENT_GEN`] id; incremented every
+    /// use so the GPU always sees a fresh id and re-uploads.
+    pub(crate) wire_force_nonce: std::cell::Cell<u64>,
 }
 
 impl Scene {
@@ -791,6 +811,8 @@ impl Scene {
             viewcube_hover: std::cell::Cell::new(None),
             last_tess_ms: std::cell::Cell::new(0.0),
             last_tess_wires: std::cell::Cell::new(0),
+            last_model_wire_gen: std::cell::Cell::new(0),
+            wire_force_nonce: std::cell::Cell::new(0),
         }
     }
 
@@ -1586,11 +1608,14 @@ impl Scene {
         };
         {
             let cache = self.model_tile_wire_cache.borrow();
-            if let Some(((epoch, sig, region), arc)) = cache.get(&tile_idx) {
+            if let Some(((epoch, sig, region), gen, arc)) = cache.get(&tile_idx) {
                 if *epoch == self.geometry_epoch
                     && *sig == pan_sig
                     && aabb_contains(*region, need_region)
                 {
+                    // Pan-hit: reuse the tessellation AND its content id, so
+                    // the GPU wire upload is skipped too (Phase 3.2).
+                    self.last_model_wire_gen.set(*gen);
                     return Arc::clone(arc);
                 }
             }
@@ -1613,9 +1638,12 @@ impl Scene {
         self.last_tess_wires.set(arc.len());
         let stored_region = tess_region
             .unwrap_or([f32::NEG_INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::INFINITY]);
+        // New tessellation → fresh content id; the GPU will re-upload.
+        let gen = WIRE_CONTENT_GEN.fetch_add(1, Ordering::Relaxed);
+        self.last_model_wire_gen.set(gen);
         self.model_tile_wire_cache.borrow_mut().insert(
             tile_idx,
-            ((self.geometry_epoch, pan_sig, stored_region), Arc::clone(&arc)),
+            ((self.geometry_epoch, pan_sig, stored_region), gen, Arc::clone(&arc)),
         );
         arc
     }

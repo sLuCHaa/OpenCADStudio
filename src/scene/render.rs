@@ -74,9 +74,13 @@ pub struct ViewportData {
     pub(super) hidden_line: bool,
     pub(super) geometry_epoch: u64,
     /// Camera generation captured when this Primitive was assembled. Paired
-    /// with `geometry_epoch` so the wire buffers re-upload when the view
-    /// changes (frustum culling produces a different wire list).
+    /// with `geometry_epoch` so the per-frame scissor / LOD recompute runs.
     pub(super) camera_generation: u64,
+    /// Content id of `wires` (Phase 3.2). Stable across a pure pan that reuses
+    /// the Model-tile tessellation, so `prepare` skips re-uploading the
+    /// world-space wire buffer when only the camera moved. Non-tile and
+    /// preview/interim frames carry a fresh id each time → always re-upload.
+    pub(super) wire_content_id: u64,
     /// Screen rectangle this viewport fills, **normalized** to the widget
     /// bounds (each component in 0..1). A single full-widget view is
     /// `(0, 0, 1, 1)`; tiled / floating viewports are sub-rectangles.
@@ -227,9 +231,6 @@ impl shader::Primitive for Primitive {
                     inner.upload_images(device, queue, &vp.images[..]);
                     inner.upload_meshes(device, &vp.meshes[..]);
                 }
-                // Wires re-upload on every camera change because the visible
-                // subset shifts under frustum culling.
-                inner.upload_wires(device, &vp.wires[..], &vp.draw_depths);
                 inner.upload_face3d(
                     device,
                     &vp.face3d_wires[..],
@@ -238,6 +239,17 @@ impl shader::Primitive for Primitive {
                     &vp.draw_depths,
                 );
                 inner.cached_epoch = cur_key;
+            }
+            // Wire buffers are world-space, so a camera move alone doesn't
+            // change them — only the view_proj uniform (uploaded every frame).
+            // Gate the upload on the wire content id instead of the camera tick
+            // (Phase 3.2): a pan that reused the Model-tile tessellation keeps
+            // the id, skipping the vertex re-pack + GPU write. Kept independent
+            // of the `cur_key` block so a preview/interim wire change still
+            // uploads even when the camera didn't move.
+            if vp.wire_content_id != inner.cached_wire_id {
+                inner.upload_wires(device, &vp.wires[..], &vp.draw_depths);
+                inner.cached_wire_id = vp.wire_content_id;
             }
             let vproj = vp.uniforms.view_proj;
             inner.compute_wire_scissors(vproj, clip_size.width, clip_size.height);
@@ -587,22 +599,39 @@ impl Scene {
         // tile's camera — culling/LOD depend on per-tile zoom, not the
         // active tile's. Paper-space content viewports already had a
         // per-viewport cache.
-        let base_arc = if let Some(tile_idx) = inst.tile_idx {
+        // `tile_wire_gen` is the Model-tile content id (Phase 3.2): present
+        // only on the tiled Model path, where a pan reuses the tessellation
+        // and its id so the GPU wire upload can be skipped. The other wire
+        // sources don't participate and force a re-upload below.
+        let (base_arc, tile_wire_gen) = if let Some(tile_idx) = inst.tile_idx {
             let aspect = if full.height > 0.0 {
                 full.width / full.height
             } else {
                 1.0
             };
-            self.model_tile_wires_arc(tile_idx, &inst.camera, aspect, full.height)
+            let arc = self.model_tile_wires_arc(tile_idx, &inst.camera, aspect, full.height);
+            (arc, Some(self.last_model_wire_gen.get()))
         } else if inst.paper_sheet {
             // The sheet renders the paper block's own entities + viewport
             // borders — NOT the projected viewport content (the GPU content
             // viewports draw that themselves).
-            self.paper_sheet_wires_arc()
+            (self.paper_sheet_wires_arc(), None)
         } else if inst.handle == acadrust::Handle::NULL {
-            self.entity_wires_arc()
+            (self.entity_wires_arc(), None)
         } else {
-            self.model_wires_for_viewport_arc(inst.handle, full.height)
+            (self.model_wires_for_viewport_arc(inst.handle, full.height), None)
+        };
+        // Wire-buffer content id for the upload gate. Live preview / interim
+        // wires are appended below and vary frame-to-frame, so any frame
+        // carrying them forces a fresh upload, as do the non-tile paths.
+        let has_overlay = self.interim_wire.is_some() || !self.preview_wires.is_empty();
+        let wire_content_id = match tile_wire_gen {
+            Some(g) if !has_overlay => g,
+            _ => {
+                let n = self.wire_force_nonce.get().wrapping_add(1);
+                self.wire_force_nonce.set(n);
+                n | (1u64 << 63)
+            }
         };
         let (face3d_wires, other_wires) = split_face3d_wires(&base_arc, &self.document);
         let all_wires = if self.interim_wire.is_none() && self.preview_wires.is_empty() {
@@ -694,6 +723,7 @@ impl Scene {
             hidden_line: flags.hidden_line,
             geometry_epoch: self.geometry_epoch,
             camera_generation: self.camera_generation,
+            wire_content_id,
             screen_rect,
         })
     }

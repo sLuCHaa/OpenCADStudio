@@ -116,6 +116,12 @@ pub struct Pipeline {
     /// were uploaded. We re-upload when either side changes — pan/zoom bumps
     /// camera_generation, which triggers re-culling and a fresh upload.
     pub cached_epoch: (u64, u64),
+    /// Content id of the wire buffer currently resident on the GPU (Phase
+    /// 3.2). When the incoming `ViewportData.wire_content_id` matches, the
+    /// world-space wire vertices are unchanged (e.g. a pure pan reused the
+    /// Model-tile tessellation) and `upload_wires` is skipped. `u64::MAX` =
+    /// nothing uploaded yet.
+    pub cached_wire_id: u64,
 }
 
 impl Pipeline {
@@ -884,6 +890,7 @@ impl Pipeline {
             gpu_face3d_edges: vec![],
             viewcube,
             cached_epoch: (u64::MAX, u64::MAX),
+            cached_wire_id: u64::MAX,
         }
     }
 

@@ -184,7 +184,21 @@ is now free. The full camera/selection-from-tessellation split is still open
 and needs running-app verification (highlight colour is baked into
 `WireModel.color` across several tessellation sites).
 
-### 3.2 Persistent GPU buffer pool — diff upload
+### 3.2 Persistent GPU buffer pool — diff upload ✅ DONE (wire pan path)
+
+Wire vertex buffers are world-space, so a camera move alone never changes
+them — only the `view_proj` uniform (already uploaded per frame). The wire
+upload was gated on `(geometry_epoch, camera_generation)`, re-sending every
+pan. Now each Model-tile tessellation is stamped with a monotonic content id
+(`WIRE_CONTENT_GEN`), reused when a pan reuses the tessellation; the pipeline
+holds the resident buffer's id and `upload_wires` is skipped when it matches.
+Gate is independent of the camera tick so a preview/interim change still
+uploads. Non-tile paths and overlay frames force a fresh id (unchanged
+behaviour). Monotonic id avoids the ABA hazard of a raw `Arc` pointer.
+
+Still open: a true `HashMap<Handle, GpuSlot>` per-entity pool for partial
+edits (re-upload only the changed slots); this covers the whole-buffer
+pan/idle case, the dominant one.
 
 Today every wire GPU buffer is re-uploaded when
 [`cached_epoch`](src/scene/pipeline/mod.rs#L101) changes. A persistent
