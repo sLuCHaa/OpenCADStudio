@@ -4251,14 +4251,21 @@ impl Scene {
     // ── Preview wire ──────────────────────────────────────────────────────
 
     pub fn set_preview_wires(&mut self, wires: Vec<WireModel>) {
+        // Preview wires are an overlay appended to the cached base wire set in
+        // `build_primitive`; they are NOT part of the tessellation cache. So a
+        // preview update must NOT bump `geometry_epoch` — that would re-
+        // tessellate the whole model on every rubber-band frame. The overlay
+        // forces a GPU wire re-upload on its own (the `has_overlay` content-id
+        // path), and iced redraws after the message that set the preview.
         self.preview_wires = wires;
-        self.bump_geometry();
     }
 
     pub fn clear_preview_wire(&mut self) {
+        // No geometry bump — see `set_preview_wires`. Dropping the overlay
+        // flips the wire content id back to the base tessellation id, which
+        // re-uploads the base wires (without the preview) on the next frame.
         self.preview_wires = vec![];
         self.interim_wire = None;
-        self.bump_geometry();
     }
 
     pub fn wire_models_for(&self, handles: &[acadrust::Handle]) -> Vec<WireModel> {
@@ -4284,8 +4291,9 @@ impl Scene {
     }
 
     pub fn set_interim_wire(&mut self, w: WireModel) {
+        // Overlay wire — same reasoning as `set_preview_wires`: no geometry
+        // bump, so the model isn't re-tessellated on every interim update.
         self.interim_wire = Some(w);
-        self.bump_geometry();
     }
 
     // ── Selection ─────────────────────────────────────────────────────────

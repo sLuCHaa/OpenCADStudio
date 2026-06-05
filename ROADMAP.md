@@ -132,6 +132,16 @@ handles; the render path re-tessellates only those, reusing the rest.
 Also useful on open: any partial cache (e.g. from block defns) can be
 re-used.
 
+**Partial (landed): preview / interim overlays.** `set_preview_wires`,
+`clear_preview_wire` and `set_interim_wire` used to `bump_geometry`, so every
+rubber-band frame of a drawing command re-tessellated the whole model (the
+same 30 ms → 400 ms spike, but while drawing). Preview / interim wires are an
+overlay appended to the cached base wire set in `build_primitive`, not part of
+the tessellation cache — so they no longer bump geometry. The base stays a
+cache hit (no re-tess), and the overlay forces only a GPU wire re-upload via
+the `has_overlay` content-id path. Snap/hit-test (`entity_wires_arc`) also
+stops re-tessellating per preview frame.
+
 ### 2.3 Progressive first render
 
 On the first frame emit a **coarse**-tol wire pass (e.g. 4× the normal
