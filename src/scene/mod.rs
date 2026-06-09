@@ -662,7 +662,10 @@ pub struct Scene {
     /// is handled at draw time via `hatch_skip_flags` in the pipeline,
     /// not at build time — that lets the GPU buffer stay stable across
     /// pan/zoom while still skipping out-of-view hatches.
-    hatch_cache: RefCell<Option<(u64, Arc<Vec<HatchModel>>)>>,
+    /// Keyed by `(geometry_epoch, selection_generation)` — selected hatches
+    /// are tinted, so a select/deselect must rebuild even when the geometry
+    /// is unchanged (issue #71).
+    hatch_cache: RefCell<Option<(u64, u64, Arc<Vec<HatchModel>>)>>,
     /// Cached wipeout fill models, keyed by geometry_epoch. Same
     /// reasoning as `hatch_cache`.
     wipeout_cache: RefCell<Option<(u64, Arc<Vec<HatchModel>>)>>,
@@ -1874,14 +1877,17 @@ impl Scene {
     pub(super) fn hatch_models_arc(&self) -> Arc<Vec<HatchModel>> {
         {
             let cache = self.hatch_cache.borrow();
-            if let Some((cached_epoch, ref arc)) = *cache {
-                if cached_epoch == self.geometry_epoch {
+            if let Some((cached_epoch, cached_sel, ref arc)) = *cache {
+                if cached_epoch == self.geometry_epoch
+                    && cached_sel == self.selection_generation
+                {
                     return Arc::clone(arc);
                 }
             }
         }
         let arc = Arc::new(self.synced_hatch_models());
-        *self.hatch_cache.borrow_mut() = Some((self.geometry_epoch, Arc::clone(&arc)));
+        *self.hatch_cache.borrow_mut() =
+            Some((self.geometry_epoch, self.selection_generation, Arc::clone(&arc)));
         arc
     }
 
@@ -1969,11 +1975,29 @@ impl Scene {
     /// and was causing the wrong hatch to be selected on click).
     pub fn visible_hatches_for_click(&self) -> HashMap<Handle, HatchModel> {
         let layout_block = self.current_layout_block_handle();
+        let model_block = self.model_space_block_handle();
+        let layer_hidden = |layer: &str| {
+            self.document
+                .layers
+                .get(layer)
+                .map(|l| l.flags.off || l.flags.frozen)
+                .unwrap_or(false)
+        };
         self.hatches
             .iter()
             .filter_map(|(&h, m)| {
-                let owner = self.document.get_entity(h)?.common().owner_handle;
-                if self.belongs_to_visible_block(h, owner, layout_block) {
+                let c = self.document.get_entity(h)?.common();
+                if c.invisible || layer_hidden(&c.layer) {
+                    return None;
+                }
+                // Mirror `synced_hatch_models`' visibility test (which drives
+                // the fill render) so anything drawn is also clickable on its
+                // fill, not just its boundary wire. The model-space fallback
+                // matters when the layout block handle differs from the
+                // entity's owner (issue: hatch fill not selectable).
+                if self.belongs_to_visible_block(h, c.owner_handle, layout_block)
+                    || self.belongs_to_visible_block(h, c.owner_handle, model_block)
+                {
                     Some((h, m.clone()))
                 } else {
                     None
@@ -4326,7 +4350,17 @@ impl Scene {
             model.pattern,
             crate::scene::hatch_model::HatchPattern::Solid
         );
-        let [wx, wy] = model.world_origin;
+        // The boundary points arrive in local render space (world_offset
+        // already subtracted). The stored DXF entity must hold WCS, so add the
+        // offset back — otherwise the boundary wire, re-projected through the
+        // normal entity path, lands `world_offset` away from the fill.
+        let off = if self.current_layout == "Model" {
+            self.world_offset
+        } else {
+            [0.0; 3]
+        };
+        let wx = model.world_origin[0] + off[0];
+        let wy = model.world_origin[1] + off[1];
         let verts: Vec<Vector2> = model
             .boundary
             .iter()

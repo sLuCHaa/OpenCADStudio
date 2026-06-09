@@ -119,7 +119,10 @@ pub struct Pipeline {
     /// Last `(geometry_epoch, camera_generation)` value for which GPU buffers
     /// were uploaded. We re-upload when either side changes — pan/zoom bumps
     /// camera_generation, which triggers re-culling and a fresh upload.
-    pub cached_epoch: (u64, u64),
+    /// `(geometry_epoch, camera_generation, selection_generation)` of the
+    /// last static-buffer upload. Selection is tracked so the selected-hatch
+    /// tint refreshes on select / deselect (issue #71).
+    pub cached_epoch: (u64, u64, u64),
     /// Content id of the wire buffer currently resident on the GPU (Phase
     /// 3.2). When the incoming `ViewportData.wire_content_id` matches, the
     /// world-space wire vertices are unchanged (e.g. a pure pan reused the
@@ -899,7 +902,7 @@ impl Pipeline {
             gpu_face3d_fill: None,
             gpu_face3d_edges: vec![],
             viewcube,
-            cached_epoch: (u64::MAX, u64::MAX),
+            cached_epoch: (u64::MAX, u64::MAX, u64::MAX),
             cached_wire_id: u64::MAX,
             cached_selection: (u64::MAX, u64::MAX),
         }

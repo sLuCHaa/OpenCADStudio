@@ -221,7 +221,7 @@ impl shader::Primitive for Primitive {
             let (uo_y, us_y) = uv_crop_axis(sr.y, sr.height);
             inner.upload_blit_uv(queue, [uo_x, uo_y], [us_x, us_y]);
             inner.upload_uniforms(queue, &vp.uniforms);
-            let cur_key = (vp.geometry_epoch, vp.camera_generation);
+            let cur_key = (vp.geometry_epoch, vp.camera_generation, vp.selection_generation);
             let fill_mode = vp.fill_mode;
             // 3D face fill requires *both* the doc-level FILLMODE *and* the
             // per-view Solid toggle. Hatches / wipeouts deliberately ignore
@@ -229,9 +229,12 @@ impl shader::Primitive for Primitive {
             // the Wireframe overlay style.
             let face3d_fill_active = fill_mode && !vp.view_wireframe;
             if cur_key != inner.cached_epoch {
-                // Static buffers (hatches/images/meshes) only need refresh on
-                // a real geometry change, not on every camera tick.
-                if vp.geometry_epoch != inner.cached_epoch.0 {
+                // Hatches carry a selected-tint, so re-upload on a geometry OR
+                // a selection change (issue #71); images / meshes only need a
+                // geometry change.
+                let geo_changed = vp.geometry_epoch != inner.cached_epoch.0;
+                let sel_changed = vp.selection_generation != inner.cached_epoch.2;
+                if geo_changed || sel_changed {
                     if fill_mode {
                         inner.upload_hatches(device, &vp.hatches[..]);
                         inner.upload_wipeouts(device, &vp.wipeout_hatches[..]);
@@ -239,6 +242,8 @@ impl shader::Primitive for Primitive {
                         inner.upload_hatches(device, &[]);
                         inner.upload_wipeouts(device, &[]);
                     }
+                }
+                if geo_changed {
                     inner.upload_images(device, queue, &vp.images[..]);
                     inner.upload_meshes(device, &vp.meshes[..]);
                 }

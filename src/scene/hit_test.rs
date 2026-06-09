@@ -344,45 +344,48 @@ fn world_to_screen(world: Vec3, view_proj: Mat4, bounds: Rectangle) -> Point {
 /// end of one sub-path and the start of the next. Each sub-path with at
 /// least 2 finite vertices contributes its segments to the parity flip.
 fn point_in_polygon(p: Point, poly: &[Point]) -> bool {
+    // Ray-cast crossing test for a single edge a→b.
+    fn cross(p: Point, a: Point, b: Point, inside: &mut bool) {
+        if (a.y > p.y) != (b.y > p.y)
+            && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x
+        {
+            *inside = !*inside;
+        }
+    }
+
     let mut inside = false;
     let mut prev: Option<Point> = None;
     let mut path_start: Option<Point> = None;
+    // Vertices in the current sub-path. A boundary can be encoded either as a
+    // ring (`[v0,v1,v2,v3]`, needs an implicit closing edge) or as an explicit
+    // edge list (`[v0,v1, NaN, v1,v2, NaN, …]`, already closed). Only close a
+    // sub-path that is a real ring (≥3 verts); closing a 2-point explicit edge
+    // would add a degenerate back-edge that cancels its own crossing.
+    let mut count = 0usize;
+    let close = |prev: Option<Point>, path_start: Option<Point>, count: usize, inside: &mut bool| {
+        if count >= 3 {
+            if let (Some(pv), Some(sv)) = (prev, path_start) {
+                cross(p, pv, sv, inside);
+            }
+        }
+    };
     for &pt in poly {
         if !pt.x.is_finite() || !pt.y.is_finite() {
-            // Close the just-finished sub-path before starting the next.
-            if let (Some(prev_v), Some(start_v)) = (prev, path_start) {
-                if ((prev_v.y > p.y) != (start_v.y > p.y))
-                    && (p.x
-                        < (start_v.x - prev_v.x) * (p.y - prev_v.y) / (start_v.y - prev_v.y)
-                            + prev_v.x)
-                {
-                    inside = !inside;
-                }
-            }
+            close(prev, path_start, count, &mut inside);
             prev = None;
             path_start = None;
+            count = 0;
             continue;
         }
         if let Some(prev_v) = prev {
-            if ((prev_v.y > p.y) != (pt.y > p.y))
-                && (p.x < (pt.x - prev_v.x) * (p.y - prev_v.y) / (pt.y - prev_v.y) + prev_v.x)
-            {
-                inside = !inside;
-            }
+            cross(p, prev_v, pt, &mut inside);
         } else {
             path_start = Some(pt);
         }
         prev = Some(pt);
+        count += 1;
     }
-    // Close the final sub-path.
-    if let (Some(prev_v), Some(start_v)) = (prev, path_start) {
-        if ((prev_v.y > p.y) != (start_v.y > p.y))
-            && (p.x
-                < (start_v.x - prev_v.x) * (p.y - prev_v.y) / (start_v.y - prev_v.y) + prev_v.x)
-        {
-            inside = !inside;
-        }
-    }
+    close(prev, path_start, count, &mut inside);
     inside
 }
 
