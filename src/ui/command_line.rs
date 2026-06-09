@@ -37,6 +37,9 @@ pub struct CommandLine {
     /// `None` when the user hasn't yet started navigating with the
     /// arrow keys. Reset on every keystroke.
     pub autocomplete_cursor: Option<usize>,
+    /// The active command step's prompt, mirrored here so a step change
+    /// can be detected and the pinned (non-fading) history line updated.
+    step_prompt: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +50,10 @@ pub struct HistoryEntry {
     /// out after `HISTORY_VISIBLE_SECS`. The dropdown popup ignores it
     /// and always shows the whole list.
     pub created_at: Instant,
+    /// The active command step's prompt is pinned so it does not fade
+    /// while the user is still working on that step. When the step
+    /// completes the pin is cleared and the normal cooldown resumes.
+    pub pinned: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -135,10 +142,39 @@ impl CommandLine {
             kind,
             text,
             created_at: Instant::now(),
+            pinned: false,
         });
         if self.history.len() > MAX_HISTORY {
             self.history.remove(0);
         }
+    }
+
+    /// Mirror the active command step's prompt. While the step is current
+    /// its history line is pinned so it does not fade; when the step
+    /// changes (or the command ends, `prompt == None`) the previous line's
+    /// cooldown restarts so it fades normally from now. The dispatch /
+    /// step-transition code already pushes the prompt as an `Info` line, so
+    /// the matching tail entry is pinned in place rather than duplicated.
+    pub fn set_step_prompt(&mut self, prompt: Option<String>) {
+        if prompt == self.step_prompt {
+            return;
+        }
+        // Release the previous pin and let its cooldown start now.
+        for e in self.history.iter_mut().filter(|e| e.pinned) {
+            e.pinned = false;
+            e.created_at = Instant::now();
+        }
+        if let Some(p) = &prompt {
+            // Reuse the prompt line dispatch/step-transition just pushed;
+            // otherwise add it.
+            if self.history.last().map(|e| &e.text) != Some(p) {
+                self.push(EntryKind::Info, p.clone());
+            }
+            if let Some(last) = self.history.last_mut() {
+                last.pinned = true;
+            }
+        }
+        self.step_prompt = prompt;
     }
 
     /// `true` while at least one history entry is still within the
@@ -148,7 +184,7 @@ impl CommandLine {
     pub fn has_visible_history(&self) -> bool {
         self.history
             .iter()
-            .any(|e| e.created_at.elapsed().as_secs_f32() < HISTORY_VISIBLE_SECS)
+            .any(|e| e.pinned || e.created_at.elapsed().as_secs_f32() < HISTORY_VISIBLE_SECS)
     }
 
     pub fn toggle_history(&mut self) {
@@ -226,19 +262,14 @@ impl CommandLine {
         matches
     }
 
-    pub fn view(
-        &self,
-        show_autocomplete: bool,
-        dyn_capturing: bool,
-        active_prompt: Option<String>,
-    ) -> Element<'_, Message> {
+    pub fn view(&self, show_autocomplete: bool, dyn_capturing: bool) -> Element<'_, Message> {
         // Only the most recent entries pushed within the last few
         // seconds show on the overlay. The dropdown button keeps the
         // full backlog reachable when the user actually wants it.
         let visible: Vec<&HistoryEntry> = self
             .history
             .iter()
-            .filter(|e| e.created_at.elapsed().as_secs_f32() < HISTORY_VISIBLE_SECS)
+            .filter(|e| e.pinned || e.created_at.elapsed().as_secs_f32() < HISTORY_VISIBLE_SECS)
             .collect();
         let start = visible.len().saturating_sub(4);
         let history_rows = visible[start..]
@@ -252,12 +283,7 @@ impl CommandLine {
                 };
                 col.push(container(text(&entry.text).size(11).color(color)).padding([1, 8]))
             });
-        // While a command is running, the prompt shows what the current
-        // step is asking for and stays put until that step completes — it
-        // does not fade like the history lines. With no active command it
-        // falls back to the generic entry prompt.
-        let prompt_label = active_prompt.unwrap_or_else(|| "Command:".to_string());
-        let prompt = container(text(prompt_label).size(11).color(PROMPT_COLOR)).padding([5, 8]);
+        let prompt = container(text("Command:").size(11).color(PROMPT_COLOR)).padding([5, 8]);
         // While dynamic input is capturing keystrokes, the command-line
         // text field is left without an `on_input` handler so it can't
         // grab focus or swallow numeric keys — those flow through the

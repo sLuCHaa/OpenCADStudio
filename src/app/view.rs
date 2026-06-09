@@ -1177,13 +1177,8 @@ impl OpenCADStudio {
             && !tab.dyn_fields.is_empty())
             || self.mtext_editor.as_ref().is_some_and(|e| e.show_preview)
             || self.text_inline.is_some();
-        let active_prompt = tab.active_cmd.as_ref().map(|c| c.prompt());
         let command_line_overlay =
-            iced::widget::container(self.command_line.view(
-                allow_autocomplete,
-                dyn_capturing,
-                active_prompt,
-            ))
+            iced::widget::container(self.command_line.view(allow_autocomplete, dyn_capturing))
             .width(Fill)
             .height(Fill)
             .align_x(iced::alignment::Horizontal::Center)

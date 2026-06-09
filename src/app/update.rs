@@ -50,6 +50,18 @@ fn format_size(bytes: u64) -> String {
 
 impl OpenCADStudio {
     pub fn update(&mut self, msg: Message) -> Task<Message> {
+        let task = self.update_inner(msg);
+        // After every message, mirror the active command step's prompt so
+        // its history line stays pinned (non-fading) until the step changes.
+        let prompt = self.tabs[self.active_tab]
+            .active_cmd
+            .as_ref()
+            .map(|c| c.prompt());
+        self.command_line.set_step_prompt(prompt);
+        task
+    }
+
+    fn update_inner(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Tick(t) => {
                 let i = self.active_tab;
