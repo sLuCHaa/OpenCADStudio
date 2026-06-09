@@ -2812,7 +2812,7 @@ impl OpenCADStudio {
                                     .map(|c| {
                                         matches!(
                                             c.name(),
-                                            "DIMTEDIT" | "MLEADERADD" | "MLEADERREMOVE" | "SS_PIPE"
+                                            "DIMTEDIT" | "MLEADERADD" | "MLEADERREMOVE"
                                         )
                                     })
                                     .unwrap_or(false);

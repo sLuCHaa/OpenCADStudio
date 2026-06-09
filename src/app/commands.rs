@@ -68,11 +68,14 @@ impl OpenCADStudio {
                 };
                 self.command_line.push_info(&cmd.prompt());
                 self.tabs[i].active_cmd = Some(Box::new(cmd));
+                // Focus the command line so the first typed value is captured.
+                return self.focus_cmd_input();
             }
             "SS_PIPE" => {
                 let cmd = crate::modules::storm_sewer::structures::PlacePipe::new();
                 self.command_line.push_info(&cmd.prompt());
                 self.tabs[i].active_cmd = Some(Box::new(cmd));
+                return self.focus_cmd_input();
             }
             "SS_PROFILE" => {
                 use crate::modules::storm_sewer::analysis as ss;

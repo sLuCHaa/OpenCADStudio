@@ -34,18 +34,26 @@ All `SS_*` commands are wired in `src/app/commands.rs::dispatch_command`:
 
 | Command   | Status | Action |
 |-----------|--------|--------|
-| `SS_INLET`/`SS_JUNCTION`/`SS_OUTFALL` | ✅ done | `PlaceStructure` — pick a point, then prompt invert/rim/area/C; commits an XDATA-tagged circle |
-| `SS_PIPE` | ✅ done | `PlacePipe` — pick START + END structures (snaps to their centers via entity-pick), prompt diameter/n; commits an XDATA-tagged line with connectivity |
+| `SS_INLET`/`SS_JUNCTION`/`SS_OUTFALL` | ✅ done | `PlaceStructure` — enter invert/rim/area/C, then click the location; commits an XDATA-tagged circle |
+| `SS_PIPE` | ✅ done | `PlacePipe` — enter diameter/n, then click the START and END structures; commits an XDATA-tagged line (endpoints at the clicks, connectivity by structure handle) |
 | `SS_ANALYZE` | ✅ done | rebuild the network from drawn entities → run engine → add flow/HGL labels + print report |
 | `SS_REPORT` | ✅ done | rebuild from drawn entities → print `report::format_analysis()` |
 | `SS_PROFILE` | ✅ done | rebuild from drawn entities → draw the HGL/invert/ground long-section |
 
-`SS_PIPE` requires its name in the `inject_picked_entity` allow-list in
-`src/app/update.rs` (so it receives the picked structure to read its center).
+**Interaction order matters.** Both commands collect typed values FIRST (the
+command line is focused via `focus_cmd_input()` at dispatch and stays focused
+through text input), then take the viewport click LAST and commit from it. A
+point-pick result (`NeedPoint`) does not re-focus the command line, so a
+click-then-type flow would lose focus and route Enter to `on_enter` → cancel.
 
 The `.ssn` file path is retained in `analysis.rs` (`analyze_text` etc.) for
 file-based workflows and tests, but the ribbon commands now operate on the
 **drawn network**.
+
+Snapping note: pipe endpoints land at the click points (where you click on each
+structure). Connectivity is exact (by handle) and analysis uses the structure
+centers, so the analysis is correct; a future refinement could redraw pipes
+exactly center-to-center.
 
 ## Remaining enhancements
 
