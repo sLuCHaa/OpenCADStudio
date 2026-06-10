@@ -218,6 +218,7 @@ pub fn save_as_version(
 ) -> Result<(), String> {
     let mut doc = doc.clone();
     doc.version = version;
+    sync_current_style_vardicts(&mut doc);
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
@@ -285,12 +286,11 @@ fn fix_current_style_names(doc: &mut CadDocument) {
     }
 }
 
-/// Look up a system-variable value stored in the document's variable
-/// dictionary: find the dictionary entry whose key matches `name`, then read
-/// the `DictionaryVariable` it points at.
-fn vardict_value(doc: &CadDocument, name: &str) -> Option<String> {
+/// Find the handle of the `DictionaryVariable` registered under `name` in any
+/// of the document's dictionaries (the variable dictionary).
+fn vardict_handle(doc: &CadDocument, name: &str) -> Option<acadrust::Handle> {
     use acadrust::objects::ObjectType;
-    let handle = doc.objects.values().find_map(|o| {
+    doc.objects.values().find_map(|o| {
         let entries = match o {
             ObjectType::Dictionary(d) => &d.entries,
             ObjectType::DictionaryWithDefault(d) => &d.entries,
@@ -300,11 +300,40 @@ fn vardict_value(doc: &CadDocument, name: &str) -> Option<String> {
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(name))
             .map(|(_, h)| *h)
-    })?;
+    })
+}
+
+/// Look up a system-variable value stored in the document's variable
+/// dictionary.
+fn vardict_value(doc: &CadDocument, name: &str) -> Option<String> {
+    use acadrust::objects::ObjectType;
+    let handle = vardict_handle(doc, name)?;
     match doc.objects.get(&handle) {
         Some(ObjectType::DictionaryVariable(v)) => Some(v.value.clone()),
         _ => None,
     }
+}
+
+/// Write a value into an existing variable-dictionary entry. No-op when the
+/// entry is absent (e.g. a brand-new document with no variable dictionary).
+fn set_vardict_value(doc: &mut CadDocument, name: &str, value: &str) {
+    use acadrust::objects::ObjectType;
+    if let Some(h) = vardict_handle(doc, name) {
+        if let Some(ObjectType::DictionaryVariable(v)) = doc.objects.get_mut(&h) {
+            v.value = value.to_string();
+        }
+    }
+}
+
+/// Mirror the current table / multileader style from the header into the
+/// variable dictionary before saving, so the choice round-trips through DWG
+/// (which stores them as DICTIONARYVAR entries, not header fields). DXF keeps
+/// both the header vars and the dictionary in sync this way too.
+fn sync_current_style_vardicts(doc: &mut CadDocument) {
+    let table = doc.header.current_table_style_name.clone();
+    let mleader = doc.header.current_mleader_style_name.clone();
+    set_vardict_value(doc, "CTABLESTYLE", &table);
+    set_vardict_value(doc, "CMLEADERSTYLE", &mleader);
 }
 
 // ── Corrupt-entity guard ──────────────────────────────────────────────────
