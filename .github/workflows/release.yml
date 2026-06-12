@@ -138,7 +138,7 @@ jobs:
             $wxsPath `
             -out $wixObj
           if ($LASTEXITCODE -ne 0) { throw "candle failed" }
-          & $light $wixObj -out $msiPath
+          & $light $wixObj -ext WixUIExtension -out $msiPath
           if ($LASTEXITCODE -ne 0) { throw "light failed" }
 
       - name: Sign MSI installer (Azure Trusted Signing)
