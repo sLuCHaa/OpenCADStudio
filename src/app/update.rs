@@ -74,6 +74,15 @@ impl OpenCADStudio {
         task
     }
 
+    /// Drop the OTRACK acquired points and the live alignment vector once a
+    /// point has been committed to the active command. Temporary tracking
+    /// points are reset on every input so they don't pile up across a
+    /// multi-point command and overwhelm the next pick (issue #85).
+    fn reset_tracking_after_point(&mut self) {
+        self.snapper.clear_tracking();
+        self.otrack_active = None;
+    }
+
     /// Snapshot the persisted UI preferences from live state.
     pub(super) fn current_settings(&self) -> super::settings::UserSettings {
         super::settings::UserSettings {
@@ -1263,6 +1272,7 @@ impl OpenCADStudio {
                             self.last_point = Some(pt);
                             self.dyn_user_reshaped = false;
                             self.sync_dyn_fields();
+                            self.reset_tracking_after_point();
                             let result = self.tabs[i].active_cmd.as_mut().map(|c| c.on_point(pt));
                             if let Some(r) = result {
                                 let task = self.apply_cmd_result(r);
@@ -1309,6 +1319,7 @@ impl OpenCADStudio {
                         self.last_point = Some(wcs_pt);
                         self.dyn_user_reshaped = false;
                         self.sync_dyn_fields();
+                        self.reset_tracking_after_point();
                         let result = self.tabs[i].active_cmd.as_mut().map(|c| c.on_point(wcs_pt));
                         if let Some(r) = result {
                             let task = self.apply_cmd_result(r);
@@ -3259,6 +3270,7 @@ impl OpenCADStudio {
                         self.last_point = Some(world_pt);
                         self.dyn_user_reshaped = false;
                         self.sync_dyn_fields();
+                        self.reset_tracking_after_point();
                         self.tabs[i]
                             .active_cmd
                             .as_mut()
@@ -7719,6 +7731,7 @@ impl OpenCADStudio {
                         self.tabs[i].dyn_active = 0;
                         self.dyn_user_reshaped = false;
                         self.sync_dyn_fields();
+                        self.reset_tracking_after_point();
                         let result = self.tabs[i].active_cmd.as_mut().map(|c| c.on_point(pt));
                         let task = result.map(|r| self.apply_cmd_result(r))?;
                         self.refresh_active_cmd_preview(i);
@@ -7766,6 +7779,7 @@ impl OpenCADStudio {
         self.last_point = Some(pt);
         self.dyn_user_reshaped = false;
         self.sync_dyn_fields();
+        self.reset_tracking_after_point();
         let result = self.tabs[i].active_cmd.as_mut().map(|c| c.on_point(pt));
         for f in self.tabs[i].dyn_fields.iter_mut() {
             f.buffer = None;
