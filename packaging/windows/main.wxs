@@ -122,35 +122,8 @@
       <ComponentRef Id='ProgramMenuDirComp' />
     </Feature>
 
-    <!--
-      Finish-screen "Launch Open CAD Studio" checkbox.
-      WIXUI_EXITDIALOGOPTIONALCHECKBOX=1 pre-ticks the checkbox; the Publish
-      below fires the launch action when the user clicks Finish with it checked.
-      WixUI_Minimal shows a minimal wizard (Welcome → Progress → Finish).
-    -->
-    <Property Id='WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT' Value='Launch Open CAD Studio' />
-    <Property Id='WIXUI_EXITDIALOGOPTIONALCHECKBOX' Value='1' />
-
-    <!--
-      Start the installed exe after the wizard closes.
-      asyncNoWait lets the installer exit cleanly while the app starts.
-    -->
-    <CustomAction
-      Id='LaunchApplication'
-      FileKey='OpenCADStudioEXE'
-      ExeCommand=''
-      Execute='immediate'
-      Return='asyncNoWait'
-      Impersonate='yes' />
-
-    <UI>
-      <UIRef Id='WixUI_Minimal' />
-      <Publish
-        Dialog='ExitDialog'
-        Control='Finish'
-        Event='DoAction'
-        Value='LaunchApplication'>WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed</Publish>
-    </UI>
+    <!-- Installer UI + finish-screen launch checkbox (see ui.wxs). -->
+    <UIRef Id='OpenCADStudioUI' />
 
   </Product>
 </Wix>

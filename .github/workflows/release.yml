@@ -128,17 +128,24 @@ jobs:
           # filename.
           $exePath  = (Resolve-Path target\release\OpenCADStudio.exe).Path
           $iconPath = (Resolve-Path packaging\windows\AppIcon.ico).Path
-          $wxsPath  = (Resolve-Path packaging\windows\main.wxs).Path
-          $wixObj   = Join-Path $PWD "packaging\windows\main.wixobj"
+          # main.wxs holds the package/feature; ui.wxs holds the installer UI
+          # and finish-screen launch checkbox. Both compile together.
+          $mainWxs  = (Resolve-Path packaging\windows\main.wxs).Path
+          $uiWxs     = (Resolve-Path packaging\windows\ui.wxs).Path
+          # candle writes one .wixobj per source into this directory (the
+          # trailing slash tells it -out is a folder, not a single file).
+          $objDir   = Join-Path $PWD "packaging\windows\"
           $msiPath  = Join-Path $PWD "OpenCADStudio.msi"
           & $candle -arch x64 `
             "-dVersion=$version" `
             "-dSource=$exePath" `
             "-dIcon=$iconPath" `
-            $wxsPath `
-            -out $wixObj
+            $mainWxs $uiWxs `
+            -out $objDir
           if ($LASTEXITCODE -ne 0) { throw "candle failed" }
-          & $light $wixObj -ext WixUIExtension -out $msiPath
+          $mainObj = Join-Path $objDir "main.wixobj"
+          $uiObj   = Join-Path $objDir "ui.wixobj"
+          & $light $mainObj $uiObj -ext WixUIExtension -out $msiPath
           if ($LASTEXITCODE -ne 0) { throw "light failed" }
 
       - name: Sign MSI installer (Azure Trusted Signing)
