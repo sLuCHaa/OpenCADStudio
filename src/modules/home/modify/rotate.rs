@@ -121,6 +121,8 @@ impl CadCommand for RotateCommand {
 
     fn on_text_input(&mut self, text: &str) -> Option<CmdResult> {
         if let Step::Angle { center, .. } = &self.step {
+            // The value already carries the correct sign (the dynamic-input
+            // layer applies the cursor's side for a bare magnitude).
             let deg: f32 = text.trim().replace(',', ".").parse().ok()?;
             let center = *center;
             defaults::set_rotate_angle(deg);
@@ -151,47 +153,56 @@ impl CadCommand for RotateCommand {
         };
         let dest_angle = (pt.y - center.y).atan2(pt.x - center.x);
         let angle_rad = dest_angle - ref_angle;
-        // Object ghosts rotated to new angle.
-        let mut out: Vec<WireModel> = self
-            .wire_models
+        // Track the live SIGNED rotation (relative to the reference) so that
+        // committing with Enter rotates the way the cursor is dragging — the
+        // dynamic-input box shows the unsigned magnitude, but the committed
+        // value must keep its direction (clockwise = negative).
+        self.default_angle = angle_rad.to_degrees();
+        // Object ghosts rotated to the new angle. The rotation sweep arc is
+        // drawn by the dynamic-input overlay (polar guide), not here.
+        self.wire_models
             .iter()
             .map(|w| w.rotated(center, angle_rad))
-            .collect();
-        // Arc rubber-band showing the rotation sweep.
-        let r = center.distance(pt).max(0.3);
-        let mut end = dest_angle;
-        if end < ref_angle {
-            end += std::f32::consts::TAU;
-        }
-        let span = end - ref_angle;
-        let segs = ((span.abs() / std::f32::consts::TAU) * 48.0)
-            .ceil()
-            .max(4.0) as u32;
-        let mut arc_pts: Vec<[f32; 3]> = (0..=segs)
-            .map(|i| {
-                let a = ref_angle + span * (i as f32 / segs as f32);
-                [center.x + r * a.cos(), center.y + r * a.sin(), center.z]
-            })
-            .collect();
-        arc_pts.push([center.x, center.y, center.z]);
-        arc_pts.push([
-            center.x + r * ref_angle.cos(),
-            center.y + r * ref_angle.sin(),
-            center.z,
-        ]);
-        out.push(WireModel::solid(
-            "rubber_band".into(),
-            arc_pts,
-            WireModel::CYAN,
-            false,
-        ));
-        out
+            .collect()
     }
 
     fn dyn_field(&self) -> DynField {
         match self.step {
             Step::Angle { .. } => DynField::Angle,
             _ => DynField::Point,
+        }
+    }
+
+    fn dyn_spec(&self) -> Option<crate::command::DynSpec> {
+        use crate::command::{DynAnchor, DynFieldSpec, DynGuide, DynRole, DynSpec};
+        // Rotation angle is measured about the CENTRE, swept from the reference
+        // direction. The polar guide arc is anchored at the centre and starts
+        // at the reference (via ref_point), with the value box centred on it.
+        if let Step::Angle { center, ref_angle } = self.step {
+            let ref_dir = Vec3::new(center.x + ref_angle.cos(), center.y + ref_angle.sin(), center.z);
+            Some(DynSpec {
+                anchor: DynAnchor::Point(center),
+                fields: vec![DynFieldSpec::new(DynRole::Angle)],
+                guide: DynGuide::Polar,
+                ref_point: Some(ref_dir),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn dyn_commit_as_text(&self) -> bool {
+        matches!(self.step, Step::Angle { .. })
+    }
+
+    fn dyn_live_value(&self, cursor: Vec3) -> Option<f64> {
+        // The rotation amount = cursor direction from the centre minus the
+        // reference angle, so the box reads the actual rotation.
+        if let Step::Angle { center, ref_angle } = &self.step {
+            let dest = (cursor.y - center.y).atan2(cursor.x - center.x);
+            Some(crate::command::dyn_display_angle_deg(dest - ref_angle) as f64)
+        } else {
+            None
         }
     }
 }

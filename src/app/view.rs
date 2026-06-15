@@ -718,17 +718,6 @@ impl OpenCADStudio {
                 // perpendicular distance to a picked object); show that live
                 // value in the box until the user types over it.
                 let live = tab.active_cmd.as_ref().and_then(|c| c.dyn_live_value(w));
-                // A Distance+Angle set is polar point entry; its angle box is
-                // shown unsigned to match the overlay's short arc. A standalone
-                // angle (ROTATE) keeps absolute CCW.
-                let polar_pair = tab
-                    .dyn_fields
-                    .iter()
-                    .any(|f| f.component == DynComponent::Distance)
-                    && tab
-                        .dyn_fields
-                        .iter()
-                        .any(|f| f.component == DynComponent::Angle);
                 let boxes: Vec<overlay::DynBox> = tab
                     .dyn_fields
                     .iter()
@@ -749,7 +738,7 @@ impl OpenCADStudio {
                             {
                                 format!("{lv:.4}")
                             }
-                            _ => dyn_component_value(f, w, base, polar_pair),
+                            _ => dyn_component_value(f, w, base),
                         };
                         overlay::DynBox {
                             label: f.role.label().to_string(),
@@ -4073,12 +4062,7 @@ fn render_mode_picker<'a>(current: acadrust::entities::ViewportRenderMode) -> El
 /// The string shown inside a dynamic-input box: the typed buffer when the
 /// field is locked, otherwise the live value derived from the cursor
 /// world position (and the base point for polar quantities).
-fn dyn_component_value(
-    f: &DynFieldEntry,
-    w: glam::Vec3,
-    base: Option<glam::Vec3>,
-    polar_pair: bool,
-) -> String {
+fn dyn_component_value(f: &DynFieldEntry, w: glam::Vec3, base: Option<glam::Vec3>) -> String {
     if let Some(b) = &f.buffer {
         return b.clone();
     }
@@ -4104,11 +4088,12 @@ fn dyn_component_value(
         DynComponent::Distance => {
             format!("{:.4}", (dx * dx + dy * dy).sqrt() * f.role.value_scale() as f64)
         }
-        // Polar point entry (Distance+Angle): unsigned [0,180] to match the
-        // short arc — above or below the X axis both read e.g. 30°.
-        DynComponent::Angle if polar_pair => format!("{:.1}", dy.atan2(dx).to_degrees().abs()),
-        // Standalone angle (ROTATE): absolute CCW 0..360, as before.
-        DynComponent::Angle => format!("{:.1}", dy.atan2(dx).to_degrees().rem_euclid(360.0)),
+        // Shared rule: unsigned magnitude of the short angle, so CW (below the
+        // reference axis) reads positive (e.g. 30°, not -30°/330°). The
+        // committed value stays signed (see dyn_resolve_point).
+        DynComponent::Angle => {
+            format!("{:.1}", crate::command::dyn_display_angle_deg(dy.atan2(dx) as f32))
+        }
         // Typed-only scalar — no geometric value to track when empty.
         DynComponent::Scalar => String::new(),
     }

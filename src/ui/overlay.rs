@@ -1344,12 +1344,19 @@ impl DynInputCanvas {
             nx = -nx;
             ny = -ny;
         }
-        // Short-way screen sweep from +X to the line, for the angle arc.
-        let mut sweep = dy.atan2(dx);
+        // Polar arc reference direction: a supplied reference point (e.g. the
+        // ROTATE reference), else the +X axis. The arc sweeps the short way
+        // from that reference to the cursor.
+        let a_cur = dy.atan2(dx);
+        let a_ref = self
+            .ref_screen
+            .map(|r| (r.y - base.y).atan2(r.x - base.x))
+            .unwrap_or(0.0);
+        let mut sweep = a_cur - a_ref;
         while sweep > std::f32::consts::PI {
             sweep -= std::f32::consts::TAU;
         }
-        while sweep < -std::f32::consts::PI {
+        while sweep <= -std::f32::consts::PI {
             sweep += std::f32::consts::TAU;
         }
         let corner = Point { x: cursor.x, y: base.y }; // axis-delta elbow
@@ -1373,15 +1380,20 @@ impl DynInputCanvas {
         // ── Guide geometry ──
         match self.guide {
             DynGuide::Polar => {
+                // Reference line along `a_ref` (the +X axis, or the supplied
+                // reference direction), then the arc from it to the cursor.
                 let href = canvas::Path::new(|p| {
                     p.move_to(base);
-                    p.line_to(Point { x: base.x + len, y: base.y });
+                    p.line_to(Point {
+                        x: base.x + a_ref.cos() * len,
+                        y: base.y + a_ref.sin() * len,
+                    });
                 });
                 frame.stroke(&href, Self::dotted());
                 let arc = canvas::Path::new(|p| {
                     let steps = 48;
                     for k in 0..=steps {
-                        let a = sweep * (k as f32 / steps as f32);
+                        let a = a_ref + sweep * (k as f32 / steps as f32);
                         let pt = Point {
                             x: base.x + a.cos() * len,
                             y: base.y + a.sin() * len,
@@ -1455,7 +1467,7 @@ impl DynInputCanvas {
         for b in &self.boxes {
             let center = match b.role {
                 DynRole::Angle => {
-                    let a_mid = sweep * 0.5;
+                    let a_mid = a_ref + sweep * 0.5;
                     Point {
                         x: base.x + a_mid.cos() * len,
                         y: base.y + a_mid.sin() * len,

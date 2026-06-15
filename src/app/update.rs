@@ -7964,6 +7964,47 @@ impl OpenCADStudio {
     /// the field buffers, and return the resulting task. Returns `None`
     /// when there is nothing typed, so the caller falls back to its normal
     /// Enter handling.
+    /// Give a bare typed angle the sign of the cursor's side relative to the
+    /// step's reference direction, so a commit-as-text angle rotates/sweeps the
+    /// way the cursor is dragging. Only applies to steps with an `Angle` field;
+    /// an explicit `+`/`-` is left untouched. Returns the (possibly re-signed)
+    /// text to feed `on_text_input`.
+    fn dyn_sign_angle_text(&self, i: usize, text: String) -> String {
+        let has_angle = self.tabs[i]
+            .dyn_fields
+            .iter()
+            .any(|f| f.role == crate::command::DynRole::Angle);
+        let t = text.trim();
+        if !has_angle || t.is_empty() || t.starts_with('-') || t.starts_with('+') {
+            return text;
+        }
+        if t.parse::<f32>().is_err() {
+            return text;
+        }
+        let anchor = self.tabs[i]
+            .dyn_anchor
+            .or(self.last_point)
+            .unwrap_or(glam::Vec3::ZERO);
+        let cur = self.tabs[i].last_cursor_world;
+        let a_cur = (cur.y - anchor.y).atan2(cur.x - anchor.x);
+        let a_ref = self.tabs[i]
+            .dyn_ref
+            .map(|r| (r.y - anchor.y).atan2(r.x - anchor.x))
+            .unwrap_or(0.0);
+        let mut d = a_cur - a_ref;
+        while d > std::f32::consts::PI {
+            d -= std::f32::consts::TAU;
+        }
+        while d <= -std::f32::consts::PI {
+            d += std::f32::consts::TAU;
+        }
+        if d < 0.0 {
+            format!("-{t}")
+        } else {
+            text
+        }
+    }
+
     fn try_dyn_commit(&mut self) -> Option<Task<Message>> {
         let i = self.active_tab;
         if !self.dyn_input
@@ -8026,6 +8067,11 @@ impl OpenCADStudio {
                 .find_map(|f| f.buffer.clone())
                 .unwrap_or_default();
             let text = super::expr_eval::eval_to_string(text.trim());
+            // Shared rule: a bare angle typed into a commit-as-text step takes
+            // the sign of the cursor's side relative to the reference, so the
+            // committed direction matches the drag (the box shows magnitude
+            // only). Commands receive an already-signed string.
+            let text = self.dyn_sign_angle_text(i, text);
             let result = self.tabs[i]
                 .active_cmd
                 .as_mut()

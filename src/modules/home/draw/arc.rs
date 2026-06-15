@@ -582,7 +582,7 @@ impl CadCommand for ArcSCACommand {
             anchor: DynAnchor::Point(self.c),
             fields: vec![DynFieldSpec::new(DynRole::Angle)],
             guide: DynGuide::Polar,
-            ref_point: None,
+            ref_point: Some(self.c + Vec3::new(self.sa.cos(), self.sa.sin(), 0.0)),
         })
     }
     fn dyn_commit_as_text(&self) -> bool {
@@ -590,7 +590,7 @@ impl CadCommand for ArcSCACommand {
     }
     fn dyn_live_value(&self, cursor: Vec3) -> Option<f64> {
         (self.step == 2)
-            .then(|| (angle_xy(self.c, cursor) - self.sa).to_degrees().rem_euclid(360.0) as f64)
+            .then(|| crate::command::dyn_display_angle_deg(angle_xy(self.c, cursor) - self.sa) as f64)
     }
     fn on_mouse_move(&mut self, pt: Vec3) -> Option<WireModel> {
         match self.step {
@@ -1074,7 +1074,7 @@ impl CadCommand for ArcCSACommand {
             anchor: DynAnchor::Point(self.c),
             fields: vec![DynFieldSpec::new(DynRole::Angle)],
             guide: DynGuide::Polar,
-            ref_point: None,
+            ref_point: Some(self.c + Vec3::new(self.sa.cos(), self.sa.sin(), 0.0)),
         })
     }
     fn dyn_commit_as_text(&self) -> bool {
@@ -1082,7 +1082,7 @@ impl CadCommand for ArcCSACommand {
     }
     fn dyn_live_value(&self, cursor: Vec3) -> Option<f64> {
         (self.step == 2)
-            .then(|| (angle_xy(self.c, cursor) - self.sa).to_degrees().rem_euclid(360.0) as f64)
+            .then(|| crate::command::dyn_display_angle_deg(angle_xy(self.c, cursor) - self.sa) as f64)
     }
     fn on_mouse_move(&mut self, pt: Vec3) -> Option<WireModel> {
         match self.step {

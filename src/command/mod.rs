@@ -283,6 +283,23 @@ pub enum DynRole {
     Count,
 }
 
+/// Shared rule for how an angle reads in the dynamic-input box: the unsigned
+/// magnitude of the short signed angle, so a clockwise angle (cursor below the
+/// reference axis) shows as a positive value rather than a negative or a
+/// CCW 300-something. Callers keep the *signed* radian for the actual
+/// computation/commit; this is display-only. `signed_rad` is the angle from
+/// the reference to the cursor.
+pub fn dyn_display_angle_deg(signed_rad: f32) -> f32 {
+    let mut a = signed_rad % std::f32::consts::TAU;
+    if a > std::f32::consts::PI {
+        a -= std::f32::consts::TAU;
+    }
+    if a <= -std::f32::consts::PI {
+        a += std::f32::consts::TAU;
+    }
+    a.to_degrees().abs()
+}
+
 impl DynRole {
     /// Default label shown before the value (empty = value only).
     pub fn label(self) -> &'static str {
