@@ -75,6 +75,18 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Convert SVG icon to ICO
+        shell: pwsh
+        run: |
+          # ImageMagick is pre-installed on windows-latest. The
+          # auto-resize generates every size Explorer / Add-Remove
+          # Programs / the Start Menu shortcut may request from a
+          # single source SVG. Must run BEFORE the build so build.rs
+          # can embed the icon into the .exe (issue #107).
+          magick assets/logo.svg `
+            -define icon:auto-resize=16,24,32,48,64,128,256 `
+            packaging/windows/AppIcon.ico
+
       - name: Build
         run: cargo build --release
 
@@ -95,17 +107,6 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-
-      - name: Convert SVG icon to ICO
-        shell: pwsh
-        run: |
-          # ImageMagick is pre-installed on windows-latest. The
-          # auto-resize generates every size Explorer / Add-Remove
-          # Programs / the Start Menu shortcut may request from a
-          # single source SVG.
-          magick assets/logo.svg `
-            -define icon:auto-resize=16,24,32,48,64,128,256 `
-            packaging/windows/AppIcon.ico
 
       - name: Build MSI installer
         shell: pwsh

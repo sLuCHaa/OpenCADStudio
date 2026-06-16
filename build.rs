@@ -26,6 +26,22 @@ use std::path::Path;
 const PRIORITY: &[&str] = &["home", "model", "insert", "annotate", "view", "manage"];
 
 fn main() {
+    // Windows: embed AppIcon.ico into the .exe so the executable carries its
+    // own icon (Explorer, taskbar, Start-menu tile, file associations). The
+    // .ico is produced from assets/logo.svg by the release workflow before the
+    // build; when it is absent (local/dev builds) this is skipped. See #107.
+    #[cfg(windows)]
+    {
+        println!("cargo:rerun-if-changed=packaging/windows/AppIcon.ico");
+        if Path::new("packaging/windows/AppIcon.ico").exists() {
+            let mut res = winresource::WindowsResource::new();
+            res.set_icon("packaging/windows/AppIcon.ico");
+            if let Err(e) = res.compile() {
+                println!("cargo:warning=failed to embed Windows icon: {e}");
+            }
+        }
+    }
+
     let mods_dir = Path::new("src/modules");
     println!("cargo:rerun-if-changed=src/modules");
 
