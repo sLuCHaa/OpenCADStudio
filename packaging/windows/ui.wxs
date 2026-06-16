@@ -6,7 +6,9 @@
   (which needs `-ext WixUIExtension` for the WixUI_Minimal dialog set).
 
   Provides:
-    * WixUI_Minimal wizard (Welcome → Progress → Finish).
+    * WixUI_FeatureTree wizard (Welcome → License → Features → Progress →
+      Finish). The Features page lets the user deselect the optional Desktop
+      shortcut feature (default on).
     * A pre-ticked "Launch Open CAD Studio" checkbox on the finish screen
       that starts the freshly installed exe when the user clicks Finish.
 -->
@@ -41,7 +43,7 @@
       Impersonate='yes' />
 
     <UI Id='OpenCADStudioUI'>
-      <UIRef Id='WixUI_Minimal' />
+      <UIRef Id='WixUI_FeatureTree' />
       <Publish
         Dialog='ExitDialog'
         Control='Finish'

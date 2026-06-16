@@ -34,8 +34,10 @@ jobs:
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/share/metainfo
           cp target/release/OpenCADStudio AppDir/usr/bin/OpenCADStudio
           cp packaging/OpenCADStudio.desktop AppDir/usr/share/applications/io.github.HakanSeven12.OpenCadStudio.desktop
+          cp packaging/io.github.HakanSeven12.OpenCadStudio.metainfo.xml AppDir/usr/share/metainfo/
           rsvg-convert -w 256 -h 256 assets/logo.svg \
             -o AppDir/usr/share/icons/hicolor/256x256/apps/io.github.HakanSeven12.OpenCadStudio.png
 
@@ -60,8 +62,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mv OpenCADStudio.AppImage OpenCADStudio-${{ github.ref_name }}-linux-x86_64.AppImage
-          gh release upload ${{ github.ref_name }} OpenCADStudio-${{ github.ref_name }}-linux-x86_64.AppImage --clobber --repo ${{ github.repository }}
+          ASSET=OpenCADStudio-${{ github.ref_name }}-linux-x86_64.AppImage
+          mv OpenCADStudio.AppImage "$ASSET"
+          sha256sum "$ASSET" > "$ASSET.sha256"
+          gh release upload ${{ github.ref_name }} "$ASSET" "$ASSET.sha256" --clobber --repo ${{ github.repository }}
 
   build-windows:
     runs-on: windows-latest
@@ -179,11 +183,16 @@ jobs:
           # .msi (installer with Start Menu shortcut + .dwg / .dxf
           # file association). The `-portable` / `-installer` suffix
           # makes the distinction obvious on the release page.
-          Move-Item target\release\OpenCADStudio.exe "OpenCADStudio-$tag-windows-x86_64-portable.exe"
-          Move-Item OpenCADStudio.msi "OpenCADStudio-$tag-windows-x86_64-installer.msi"
+          $exe = "OpenCADStudio-$tag-windows-x86_64-portable.exe"
+          $msi = "OpenCADStudio-$tag-windows-x86_64-installer.msi"
+          Move-Item target\release\OpenCADStudio.exe $exe
+          Move-Item OpenCADStudio.msi $msi
+          # SHA256 sidecars so downloads can be verified.
+          (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower() + "  $exe" | Out-File -Encoding ascii "$exe.sha256"
+          (Get-FileHash -Algorithm SHA256 $msi).Hash.ToLower() + "  $msi" | Out-File -Encoding ascii "$msi.sha256"
           gh release upload $tag `
-            "OpenCADStudio-$tag-windows-x86_64-portable.exe" `
-            "OpenCADStudio-$tag-windows-x86_64-installer.msi" `
+            $exe "$exe.sha256" `
+            $msi "$msi.sha256" `
             --clobber --repo ${{ github.repository }}
 
   build-macos:
@@ -272,8 +281,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mv OpenCADStudio.dmg OpenCADStudio-${{ github.ref_name }}-macos-arm64.dmg
-          gh release upload ${{ github.ref_name }} OpenCADStudio-${{ github.ref_name }}-macos-arm64.dmg --clobber --repo ${{ github.repository }}
+          ASSET=OpenCADStudio-${{ github.ref_name }}-macos-arm64.dmg
+          mv OpenCADStudio.dmg "$ASSET"
+          shasum -a 256 "$ASSET" > "$ASSET.sha256"
+          gh release upload ${{ github.ref_name }} "$ASSET" "$ASSET.sha256" --clobber --repo ${{ github.repository }}
 
       - name: Emit Homebrew cask sha256
         if: github.event_name == 'release'
