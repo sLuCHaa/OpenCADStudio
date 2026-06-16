@@ -372,18 +372,6 @@ pub fn save_to_bytes(doc: &CadDocument, ext: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Web "save as": offer a download of `bytes` under `name` via the browser's
-/// save dialog. Returns the file name on success.
-#[cfg(target_arch = "wasm32")]
-pub async fn download_web(name: String, bytes: Vec<u8>) -> Result<String, String> {
-    let handle = rfd::AsyncFileDialog::new()
-        .set_file_name(&name)
-        .save_file()
-        .await
-        .ok_or_else(|| "Cancelled".to_string())?;
-    handle.write(&bytes).await.map_err(|e| e.to_string())?;
-    Ok(name)
-}
 
 // ── Post-load fixups ──────────────────────────────────────────────────────
 

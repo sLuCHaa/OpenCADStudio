@@ -686,9 +686,6 @@ pub enum Message {
     FileOpened(Result<(String, PathBuf, CadDocument, crate::scene::DerivedCaches), String>),
     SaveFile,
     SaveAs,
-    /// Result of the web (browser download) save: file name or error.
-    #[cfg(target_arch = "wasm32")]
-    WebSaveResult(Result<String, String>),
     // ── Custom Save-As dialog ─────────────────────────────────────────────
     SaveDialogFormatChanged(String),
     SaveDialogFilenameChanged(String),
