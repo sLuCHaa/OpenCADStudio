@@ -3,5 +3,10 @@
     "repo": "HakanSeven12/opencad-example-plugin",
     "name": "Example Plugin",
     "description": "Reference dynamically-loaded add-on (ribbon tab + EX_HELLO command)."
+  },
+  {
+    "repo": "mf4633/opencad-storm-sewer-plugin",
+    "name": "Storm Sewer",
+    "description": "Gravity storm-drain network design and analysis (Rational + Manning + HGL, LandXML import)."
   }
 ]
