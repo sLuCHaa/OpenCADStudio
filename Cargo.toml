@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [workspace]
-members = ["crates/ocs_plugin_api"]
+members = ["crates/ocs_plugin_api", "crates/ocs_example_plugin"]
 
 # Embed the application icon into the Windows .exe so Explorer, the taskbar,
 # the Start-menu tile and file-association entries show it (issue #107).
@@ -79,6 +79,8 @@ acadrust = { git = "https://github.com/HakanSeven12/acadrust", branch = "main" }
 rayon = "1"
 open = "5"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+# Runtime loading of external plugin cdylibs (phase 2, desktop only).
+libloading = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"

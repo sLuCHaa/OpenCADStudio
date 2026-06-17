@@ -44,6 +44,16 @@ pub fn ribbon_modules_enabled(
         .filter(|p| !disabled.contains(p.manifest().id))
         .map(|p| (p.manifest().ribbon_order, p.ribbon()))
         .collect();
+    // Dynamically-loaded external plugins contribute tabs too (their libraries
+    // stay resident for the session, so these vtables remain valid).
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::plugin::external::with_loaded(|loaded| {
+        for lp in loaded {
+            if !disabled.contains(lp.id.as_str()) {
+                addons.push((lp.plugin().manifest().ribbon_order, lp.plugin().ribbon()));
+            }
+        }
+    });
     addons.sort_by_key(|(order, _)| *order);
     core.extend(addons.into_iter().map(|(_, ribbon)| ribbon));
     core
@@ -53,12 +63,35 @@ pub fn ribbon_modules_enabled(
 /// Disabled plugins (toggled off in the Plugin Manager) are skipped.
 pub(crate) fn try_dispatch(app: &mut OpenCADStudio, tab: usize, cmd: &str) -> bool {
     let disabled = app.disabled_plugin_ids();
-    let mut host = HostSession::new(app, tab);
-    for plugin in all_plugins() {
-        if disabled.contains(plugin.manifest().id) {
-            continue;
+    {
+        let mut host = HostSession::new(app, tab);
+        for plugin in all_plugins() {
+            if disabled.contains(plugin.manifest().id) {
+                continue;
+            }
+            if plugin.dispatch(&mut host, cmd) {
+                return true;
+            }
         }
-        if plugin.dispatch(&mut host, cmd) {
+    }
+    // Then the dynamically-loaded external plugins. The store is a separate
+    // borrow from `app`, so wrapping `app` in a fresh `HostSession` here is
+    // sound.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let handled = crate::plugin::external::with_loaded(|loaded| {
+            let mut host = HostSession::new(app, tab);
+            for lp in loaded {
+                if disabled.contains(lp.id.as_str()) {
+                    continue;
+                }
+                if lp.plugin().dispatch(&mut host, cmd) {
+                    return true;
+                }
+            }
+            false
+        });
+        if handled {
             return true;
         }
     }

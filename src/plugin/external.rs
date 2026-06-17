@@ -194,6 +194,132 @@ fn parse_string_array(s: &str) -> Vec<String> {
         .collect()
 }
 
+// ── Runtime loading (desktop only) ──────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use loader::{load, load_at_startup, loaded_ids, with_loaded, LoadedPlugin};
+
+#[cfg(not(target_arch = "wasm32"))]
+mod loader {
+    use super::{lib_extension, ExternalPlugin};
+    use ocs_plugin_api::host::BuiltinPlugin;
+    use std::path::{Path, PathBuf};
+
+    /// A loaded external plugin. The library must outlive the boxed plugin, so
+    /// `plugin` is declared before `_lib` (fields drop in declaration order).
+    pub struct LoadedPlugin {
+        plugin: Box<dyn BuiltinPlugin>,
+        _lib: libloading::Library,
+        pub id: String,
+    }
+
+    impl LoadedPlugin {
+        pub fn plugin(&self) -> &dyn BuiltinPlugin {
+            self.plugin.as_ref()
+        }
+    }
+
+    use std::cell::RefCell;
+
+    // Process-wide store of loaded external plugins. The libraries must stay
+    // resident for the whole session — ribbon tabs and command dispatch hold
+    // vtables that live inside them — so this is filled once at startup and
+    // never cleared mid-session (reloading would dangle live ribbon modules).
+    thread_local! {
+        static LOADED: RefCell<Vec<LoadedPlugin>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Discover packages and load every API-compatible one with a native
+    /// library into the process store. Call once at startup. Returns per-id
+    /// results so the host can report load failures.
+    pub fn load_at_startup() -> Vec<(String, Result<(), String>)> {
+        let discovered = super::discover();
+        let mut out = Vec::new();
+        LOADED.with(|cell| {
+            let mut store = cell.borrow_mut();
+            if !store.is_empty() {
+                return; // already loaded this session
+            }
+            for d in &discovered {
+                if !d.api_compatible() || !d.lib_present {
+                    continue;
+                }
+                match load(d) {
+                    Ok(lp) => {
+                        out.push((lp.id.clone(), Ok(())));
+                        store.push(lp);
+                    }
+                    Err(e) => out.push((d.id.clone(), Err(e))),
+                }
+            }
+        });
+        out
+    }
+
+    /// Ids of the plugins currently loaded in the process store.
+    pub fn loaded_ids() -> Vec<String> {
+        LOADED.with(|c| c.borrow().iter().map(|lp| lp.id.clone()).collect())
+    }
+
+    /// Run `f` over the loaded plugins (borrowing the store).
+    pub fn with_loaded<R>(f: impl FnOnce(&[LoadedPlugin]) -> R) -> R {
+        LOADED.with(|c| f(&c.borrow()))
+    }
+
+    /// Path to the native library beside `plugin.toml`, if any.
+    fn lib_file(dir: &Path) -> Option<PathBuf> {
+        let ext = lib_extension();
+        std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
+            let p = e.path();
+            (p.extension().and_then(|s| s.to_str()) == Some(ext)).then_some(p)
+        })
+    }
+
+    /// Load a discovered package's `cdylib`, gating on the API version before
+    /// any of its code runs. Approach B (see `docs/plugin-architecture.md`):
+    /// the plugin hands back a boxed `BuiltinPlugin`; this assumes the package
+    /// was built against the same toolchain and `ocs_plugin_api` version, which
+    /// the version symbol enforces.
+    ///
+    /// # Safety
+    /// Calls `dlopen`/`dlsym` on an arbitrary file and trusts its exported
+    /// symbols' signatures. Only invoke on packages the user installed.
+    pub fn load(p: &ExternalPlugin) -> Result<LoadedPlugin, String> {
+        let path = lib_file(&p.dir).ok_or("no native library in package")?;
+        unsafe {
+            let lib = libloading::Library::new(&path).map_err(|e| e.to_string())?;
+
+            let version: libloading::Symbol<extern "C" fn() -> u32> = lib
+                .get(b"ocs_plugin_api_version")
+                .map_err(|_| "missing ocs_plugin_api_version symbol".to_string())?;
+            let v = version();
+            if v != ocs_plugin_api::API_VERSION {
+                return Err(format!(
+                    "API version {v} != host {}",
+                    ocs_plugin_api::API_VERSION
+                ));
+            }
+
+            let register: libloading::Symbol<
+                extern "C" fn() -> *mut Box<dyn BuiltinPlugin>,
+            > = lib
+                .get(b"ocs_plugin_register")
+                .map_err(|_| "missing ocs_plugin_register symbol".to_string())?;
+            let raw = register();
+            if raw.is_null() {
+                return Err("ocs_plugin_register returned null".into());
+            }
+            let plugin = *Box::from_raw(raw);
+            let id = plugin.manifest().id.to_string();
+            Ok(LoadedPlugin {
+                plugin,
+                _lib: lib,
+                id,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

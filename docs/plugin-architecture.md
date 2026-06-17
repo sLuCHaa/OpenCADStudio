@@ -270,16 +270,29 @@ This mirrors QGIS: the application ships core menus; plugins add tabs/tools with
 ### Phase 2 — Dynamic loading (desktop)
 
 ```
-%APPDATA%/OpenCADStudio/plugins/
-  opencad.storm_sewer/
+<config>/OpenCADStudio/plugins/
+  opencad.example/
     plugin.toml
-    opencad_storm_sewer.dll    # cdylib
+    libocs_example_plugin.so   # cdylib (.dll / .dylib per platform)
 ```
 
-- `libloading` + `#[no_mangle] extern "C" fn ocs_plugin_register() -> *const PluginVTable`
-- `api_version` compatibility gate at load time
-- [x] Enable/disable in settings (like QGIS plugin manager) — landed early in phase 1
-- Enable/disable in settings (like QGIS plugin manager)
+- [x] Discover packages — scan the plugins folder, read `plugin.toml`, check for
+  a native library, gate on `api_version`. Surfaced in the Plugin Manager with
+  a status pill (`src/plugin/external.rs`).
+- [x] Load via `libloading` — each cdylib exports two C symbols (via the
+  `ocs_plugin_api::export_plugin!` macro): `ocs_plugin_api_version` (checked
+  first, so an incompatible build never runs) and `ocs_plugin_register` →
+  `*mut Box<dyn BuiltinPlugin>`. Loaded once at startup; the library stays
+  resident for the session (ribbon tabs / dispatch hold its vtables). External
+  plugins merge into the same ribbon + `try_dispatch` path as built-ins and
+  honour the enable/disable set.
+- [x] `api_version` compatibility gate at load time.
+- [x] Enable/disable in settings (like QGIS plugin manager) — landed in phase 1.
+
+**ABI approach:** the plugin hands back a boxed `BuiltinPlugin` (not a `repr(C)`
+vtable). This assumes the package was built against the same toolchain and
+`ocs_plugin_api` version; the version symbol enforces the latter. Reference
+implementation: [`crates/ocs_example_plugin`](../crates/ocs_example_plugin).
 
 ### Phase 3 — Interchange & QA
 

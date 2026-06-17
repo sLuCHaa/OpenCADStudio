@@ -156,13 +156,15 @@ fn status_badge<'a>(label: &str, color: Color) -> Element<'a, Message> {
         .into()
 }
 
-fn external_card<'a>(p: &ExternalPlugin) -> Element<'a, Message> {
-    let (status, color) = if !p.api_compatible() {
+fn external_card<'a>(p: &ExternalPlugin, loaded: bool) -> Element<'a, Message> {
+    let (status, color) = if loaded {
+        ("Loaded", Color { r: 0.2, g: 0.5, b: 0.3, a: 1.0 })
+    } else if !p.api_compatible() {
         ("API incompatible", Color { r: 0.55, g: 0.28, b: 0.28, a: 1.0 })
     } else if !p.lib_present {
         ("No library", Color { r: 0.5, g: 0.42, b: 0.2, a: 1.0 })
     } else {
-        ("Ready to load", Color { r: 0.2, g: 0.45, b: 0.28, a: 1.0 })
+        ("Restart to load", Color { r: 0.5, g: 0.42, b: 0.2, a: 1.0 })
     };
     let header = row![
         text(p.name.clone()).size(15).color(WHITE),
@@ -201,6 +203,7 @@ pub fn view_window<'a>(
     plugins: &[&'static PluginManifest],
     disabled: &FxHashSet<String>,
     externals: &[ExternalPlugin],
+    loaded: &FxHashSet<String>,
 ) -> Element<'a, Message> {
     let title = text("Installed Plugins").size(20).color(WHITE);
     let subtitle = text(format!(
@@ -229,7 +232,7 @@ pub fn view_window<'a>(
                 .color(DIM),
         );
         for p in externals {
-            list = list.push(external_card(p));
+            list = list.push(external_card(p, loaded.contains(&p.id)));
         }
     }
     let body: Element<'_, Message> = scrollable(list.width(Fill)).height(Fill).into();

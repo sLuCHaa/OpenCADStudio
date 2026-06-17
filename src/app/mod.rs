@@ -298,8 +298,11 @@ pub(super) struct OpenCADStudio {
     /// dispatch. Persisted via [`settings::UserSettings::disabled_plugins`].
     disabled_plugins: rustc_hash::FxHashSet<String>,
     /// External add-on packages found in the plugins folder, refreshed when the
-    /// Plugin Manager opens. Discovery only — not yet loaded (phase 2).
+    /// Plugin Manager opens.
     external_plugins: Vec<crate::plugin::external::ExternalPlugin>,
+    /// Ids of external packages actually loaded this session (a subset of
+    /// `external_plugins` — compatible, with a library, dlopen'd at startup).
+    loaded_plugin_ids: rustc_hash::FxHashSet<String>,
     /// PDSIZE text buffer for the Point Style (DDPTYPE) dialog.
     point_size_buf: String,
     /// Point Style size mode: `true` = relative to screen, `false` = absolute.
@@ -1465,6 +1468,7 @@ impl OpenCADStudio {
             modal_dragging: false,
             disabled_plugins: rustc_hash::FxHashSet::default(),
             external_plugins: Vec::new(),
+            loaded_plugin_ids: rustc_hash::FxHashSet::default(),
             point_size_buf: String::new(),
             point_size_relative: true,
             default_assoc_prompted: false,
@@ -1643,6 +1647,20 @@ impl OpenCADStudio {
         // write.
         if let Some(s) = settings::UserSettings::load() {
             app.apply_settings(&s);
+        }
+        // Load external plugin packages from the plugins folder once, then fold
+        // their ribbon tabs into the ribbon. Skipped under test/wasm.
+        #[cfg(all(not(target_arch = "wasm32"), not(test)))]
+        {
+            for (id, res) in crate::plugin::external::load_at_startup() {
+                if let Err(e) = res {
+                    app.command_line
+                        .push_error(&format!("Plugin '{id}' failed to load: {e}"));
+                }
+            }
+            app.loaded_plugin_ids =
+                crate::plugin::external::loaded_ids().into_iter().collect();
+            app.rebuild_ribbon_modules();
         }
         app.last_saved_settings = Some(app.current_settings());
         app.sync_ribbon_layers();

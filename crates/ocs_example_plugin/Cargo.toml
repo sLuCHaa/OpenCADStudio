@@ -1,0 +1,16 @@
+[package]
+name = "ocs_example_plugin"
+version = "0.1.0"
+edition = "2021"
+description = "Reference external add-on for Open CAD Studio — builds a cdylib the host loads at runtime."
+license = "GPL-3.0-only"
+
+# A dynamically-loaded plugin is a C-ABI dynamic library. `cargo build -p
+# ocs_example_plugin` produces target/<profile>/libocs_example_plugin.so (or
+# .dll/.dylib); drop it beside a plugin.toml in the plugins folder.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The stable contract, with the runtime `host` surface (HostApi/BuiltinPlugin).
+ocs_plugin_api = { path = "../ocs_plugin_api", features = ["host"] }

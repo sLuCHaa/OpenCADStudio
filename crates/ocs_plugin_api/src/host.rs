@@ -16,6 +16,47 @@ use std::any::Any;
 use acadrust::xdata::ExtendedDataRecord;
 use acadrust::{CadDocument, EntityType, Handle};
 
+use crate::manifest::PluginManifest;
+use crate::ribbon::CadModule;
+
+/// An add-on package's entry point: its manifest, optional ribbon tab, and
+/// command dispatch. Built-in (in-tree) and dynamically-loaded (cdylib) plugins
+/// implement the same trait from this crate, so an out-of-tree add-on targets
+/// the stable contract rather than the host binary.
+pub trait BuiltinPlugin: Send + Sync {
+    fn manifest(&self) -> &'static PluginManifest;
+    fn ribbon(&self) -> Box<dyn CadModule>;
+    fn dispatch(&self, host: &mut dyn HostApi, cmd: &str) -> bool;
+}
+
+/// Export a `BuiltinPlugin` from a `cdylib` so the host can load it at runtime.
+///
+/// Emits the two C symbols the loader looks for: `ocs_plugin_api_version`
+/// (checked before anything else, so an ABI-incompatible build is rejected
+/// without running its code) and `ocs_plugin_register` (constructs the plugin
+/// and hands ownership to the host as a boxed trait object).
+///
+/// ```ignore
+/// ocs_plugin_api::export_plugin!(MyPlugin::new());
+/// ```
+#[macro_export]
+macro_rules! export_plugin {
+    ($ctor:expr) => {
+        #[no_mangle]
+        pub extern "C" fn ocs_plugin_api_version() -> u32 {
+            $crate::API_VERSION
+        }
+
+        #[no_mangle]
+        pub extern "C" fn ocs_plugin_register(
+        ) -> *mut ::std::boxed::Box<dyn $crate::host::BuiltinPlugin> {
+            let plugin: ::std::boxed::Box<dyn $crate::host::BuiltinPlugin> =
+                ::std::boxed::Box::new($ctor);
+            ::std::boxed::Box::into_raw(::std::boxed::Box::new(plugin))
+        }
+    };
+}
+
 /// The plugin-facing runtime surface for one active document tab.
 pub trait HostApi {
     /// Index of the tab this session targets.
