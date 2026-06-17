@@ -74,6 +74,10 @@ pub struct UserSettings {
     /// prompt has already been shown. Set once the user answers (either way),
     /// so we never nag again on subsequent launches.
     pub default_assoc_prompted: bool,
+    /// Ids of plugins the user turned off in the Plugin Manager. Disabled
+    /// plugins keep their manifest listed but drop their ribbon tab and command
+    /// dispatch.
+    pub disabled_plugins: Vec<String>,
 }
 
 impl Default for UserSettings {
@@ -96,6 +100,7 @@ impl Default for UserSettings {
                 SnapType::Nearest,
             ],
             default_assoc_prompted: false,
+            disabled_plugins: Vec::new(),
         }
     }
 }
@@ -130,6 +135,14 @@ impl UserSettings {
                 "osnap" => s.snap_enabled = val == "1",
                 "otrack" => s.otrack = val == "1",
                 "default_assoc_prompted" => s.default_assoc_prompted = val == "1",
+                "disabled_plugins" => {
+                    s.disabled_plugins = val
+                        .split(',')
+                        .map(|t| t.trim())
+                        .filter(|t| !t.is_empty())
+                        .map(|t| t.to_string())
+                        .collect();
+                }
                 "snap_modes" => {
                     let modes: Vec<SnapType> =
                         val.split(',').filter_map(|t| snap_from_id(t.trim())).collect();
@@ -155,7 +168,7 @@ impl UserSettings {
             .collect::<Vec<_>>()
             .join(",");
         let body = format!(
-            "dyn={}\northo={}\npolar={}\npolar_increment_deg={}\ngrid={}\nosnap={}\notrack={}\ndefault_assoc_prompted={}\nsnap_modes={}\n",
+            "dyn={}\northo={}\npolar={}\npolar_increment_deg={}\ngrid={}\nosnap={}\notrack={}\ndefault_assoc_prompted={}\nsnap_modes={}\ndisabled_plugins={}\n",
             b(self.dyn_input),
             b(self.ortho),
             b(self.polar),
@@ -165,6 +178,7 @@ impl UserSettings {
             b(self.otrack),
             b(self.default_assoc_prompted),
             modes,
+            self.disabled_plugins.join(","),
         );
         let _ = std::fs::write(path, body);
     }

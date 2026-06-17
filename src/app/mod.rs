@@ -293,6 +293,10 @@ pub(super) struct OpenCADStudio {
     modal_drag_last: Option<Point>,
     /// True while the modal title bar is held (a drag is in progress).
     modal_dragging: bool,
+    /// Plugin ids the user turned off in the Plugin Manager. Disabled plugins
+    /// keep their manifest listed but drop their ribbon tab and command
+    /// dispatch. Persisted via [`settings::UserSettings::disabled_plugins`].
+    disabled_plugins: rustc_hash::FxHashSet<String>,
     /// New-release notification window — opened on startup when the
     /// GitHub releases API reports a newer version than this build.
     /// First-launch "make Open CAD Studio the default for .dwg/.dxf?" prompt
@@ -1018,6 +1022,8 @@ pub enum Message {
     PluginManagerOpen,
     #[allow(dead_code)]
     PluginManagerClose,
+    /// Enable (`true`) or disable (`false`) the plugin with this id.
+    SetPluginEnabled(String, bool),
     // ── Quick Select / Select Similar ───────────────────────────────────
     /// Extend the current selection with every entity in the active
     /// layout that matches a selected entity by (type, layer).
@@ -1428,6 +1434,7 @@ impl OpenCADStudio {
             modal_offset: iced::Vector::ZERO,
             modal_drag_last: None,
             modal_dragging: false,
+            disabled_plugins: rustc_hash::FxHashSet::default(),
             default_assoc_prompted: false,
             update_notice_version: None,
             update_notice_body: None,

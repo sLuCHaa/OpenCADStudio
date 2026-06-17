@@ -255,7 +255,8 @@ This mirrors QGIS: the application ships core menus; plugins add tabs/tools with
 - [x] Storm Sewer off `commands.rs` monolith
 - [x] Single registration (`plugin.toml` + `BuiltinPlugin::ribbon`)
 - [~] Extract `ocs_plugin_api` crate — manifest + ribbon/`CadModule` done; `acadrust`-typed host surface pending
-- [x] Plugin manager UI stub (list installed, versions) — `PLUGINS` / `PLUGINMANAGER` command, or the Start-page "Plugins" button
+- [x] Plugin manager UI (list installed, versions) — `PLUGINS` / `PLUGINMANAGER` command, or the Start-page "Plugins" button
+- [x] Enable/disable plugins from the manager — a disabled plugin drops its ribbon tab and command dispatch; persisted in `settings.txt` (`disabled_plugins=`)
 
 ### Phase 2 — Dynamic loading (desktop)
 
@@ -268,6 +269,7 @@ This mirrors QGIS: the application ships core menus; plugins add tabs/tools with
 
 - `libloading` + `#[no_mangle] extern "C" fn ocs_plugin_register() -> *const PluginVTable`
 - `api_version` compatibility gate at load time
+- [x] Enable/disable in settings (like QGIS plugin manager) — landed early in phase 1
 - Enable/disable in settings (like QGIS plugin manager)
 
 ### Phase 3 — Interchange & QA

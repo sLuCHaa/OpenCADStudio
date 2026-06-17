@@ -1120,7 +1120,10 @@ impl OpenCADStudio {
                 sized(crate::ui::shortcuts::view_window(&self.shortcut_overrides), 720, 520)
             }
             super::ModalKind::PluginManager => sized(
-                crate::ui::plugin_manager::view_window(&crate::plugin::installed_manifests()),
+                crate::ui::plugin_manager::view_window(
+                    &crate::plugin::installed_manifests(),
+                    &self.disabled_plugins,
+                ),
                 520,
                 460,
             ),

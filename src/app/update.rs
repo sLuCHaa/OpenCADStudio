@@ -141,6 +141,11 @@ impl OpenCADStudio {
             otrack: self.snapper.otrack_enabled,
             snap_modes: super::settings::UserSettings::modes_from(self.snapper.enabled.iter()),
             default_assoc_prompted: self.default_assoc_prompted,
+            disabled_plugins: {
+                let mut v: Vec<String> = self.disabled_plugins.iter().cloned().collect();
+                v.sort();
+                v
+            },
         }
     }
 
@@ -155,6 +160,22 @@ impl OpenCADStudio {
         self.snapper.otrack_enabled = s.otrack;
         self.snapper.enabled = s.snap_modes.iter().copied().collect();
         self.default_assoc_prompted = s.default_assoc_prompted;
+        self.disabled_plugins = s.disabled_plugins.iter().cloned().collect();
+        self.rebuild_ribbon_modules();
+    }
+
+    /// Rebuild the ribbon's tab list from the registry, dropping the tabs of any
+    /// disabled plugins. Call after `disabled_plugins` changes.
+    pub(super) fn rebuild_ribbon_modules(&mut self) {
+        let modules =
+            crate::plugin::ribbon_modules_enabled(&self.disabled_plugins);
+        self.ribbon.set_modules(modules);
+    }
+
+    /// Snapshot of disabled plugin ids — lets the registry skip them while it
+    /// holds a `&mut` borrow of the app via `HostSession`.
+    pub(crate) fn disabled_plugin_ids(&self) -> rustc_hash::FxHashSet<String> {
+        self.disabled_plugins.clone()
     }
 
     /// Write preferences to disk only when they differ from the last write,
@@ -5430,6 +5451,16 @@ impl OpenCADStudio {
             }
             Message::PluginManagerClose => {
                 self.close_active_modal();
+                Task::none()
+            }
+            Message::SetPluginEnabled(id, enabled) => {
+                if enabled {
+                    self.disabled_plugins.remove(&id);
+                } else {
+                    self.disabled_plugins.insert(id);
+                }
+                self.rebuild_ribbon_modules();
+                self.persist_settings_if_changed();
                 Task::none()
             }
 

@@ -28,11 +28,20 @@ pub fn installed_manifests() -> Vec<&'static PluginManifest> {
     manifests
 }
 
-/// Core ribbon tabs plus add-on tabs (sorted by `manifest.ribbon_order`).
+/// Core ribbon tabs plus *every* add-on tab (sorted by `manifest.ribbon_order`).
 pub fn all_ribbon_modules() -> Vec<Box<dyn CadModule>> {
+    ribbon_modules_enabled(&rustc_hash::FxHashSet::default())
+}
+
+/// Core ribbon tabs plus add-on tabs whose plugin id is **not** in `disabled`
+/// (sorted by `manifest.ribbon_order`). Used by the Plugin Manager toggle.
+pub fn ribbon_modules_enabled(
+    disabled: &rustc_hash::FxHashSet<String>,
+) -> Vec<Box<dyn CadModule>> {
     let mut core = core_registry::all_modules();
     let mut addons: Vec<(i32, Box<dyn CadModule>)> = all_plugins()
         .into_iter()
+        .filter(|p| !disabled.contains(p.manifest().id))
         .map(|p| (p.manifest().ribbon_order, p.ribbon()))
         .collect();
     addons.sort_by_key(|(order, _)| *order);
@@ -40,10 +49,15 @@ pub fn all_ribbon_modules() -> Vec<Box<dyn CadModule>> {
     core
 }
 
-/// Try each plugin until one handles `cmd`. Returns true if handled.
+/// Try each *enabled* plugin until one handles `cmd`. Returns true if handled.
+/// Disabled plugins (toggled off in the Plugin Manager) are skipped.
 pub(crate) fn try_dispatch(app: &mut OpenCADStudio, tab: usize, cmd: &str) -> bool {
+    let disabled = app.disabled_plugin_ids();
     let mut host = HostSession::new(app, tab);
     for plugin in all_plugins() {
+        if disabled.contains(plugin.manifest().id) {
+            continue;
+        }
         if plugin.dispatch(&mut host, cmd) {
             return true;
         }
@@ -96,6 +110,22 @@ mod tests {
         assert!(titles.contains(&"Demo Plugin"), "ribbon tabs: {titles:?}");
         let core = core_registry::all_modules();
         assert_eq!(titles.len(), core.len() + all_plugins().len());
+    }
+
+    #[test]
+    fn disabled_plugin_drops_its_ribbon_tab() {
+        let mut disabled = rustc_hash::FxHashSet::default();
+        disabled.insert("opencad.demo_plugin".to_string());
+        let titles: Vec<&str> = ribbon_modules_enabled(&disabled)
+            .iter()
+            .map(|m| m.title())
+            .collect();
+        assert!(
+            !titles.contains(&"Demo Plugin"),
+            "disabled plugin still present: {titles:?}"
+        );
+        // Only the add-on tab is dropped; core tabs stay.
+        assert_eq!(titles.len(), core_registry::all_modules().len());
     }
 
     #[test]

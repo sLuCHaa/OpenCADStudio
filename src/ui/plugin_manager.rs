@@ -1,13 +1,14 @@
-//! Plugin Manager window — lists the add-ons compiled into this build.
-//!
-//! Phase-1 stub: read-only inventory of installed plugins (name, version, id,
-//! API level, description). Enable/disable and dynamic loading come with the
-//! phase-2 loader; see `docs/plugin-architecture.md`.
+//! Plugin Manager window — lists the add-ons compiled into this build and lets
+//! the user enable/disable each one. A disabled plugin keeps its manifest
+//! listed but drops its ribbon tab and command dispatch (persisted across
+//! launches). Dynamic loading still comes with the phase-2 loader; see
+//! `docs/plugin-architecture.md`.
 
 use crate::app::Message;
 use crate::plugin::manifest::PluginManifest;
-use iced::widget::{column, container, row, scrollable, text, Space};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Background, Border, Color, Element, Fill, Theme};
+use rustc_hash::FxHashSet;
 
 // Register the command names for autocomplete.
 inventory::submit!(crate::command::CommandRegistration {
@@ -70,15 +71,47 @@ fn badge<'a>(label: String) -> Element<'a, Message> {
         .into()
 }
 
-fn plugin_card<'a>(m: &PluginManifest) -> Element<'a, Message> {
-    let header = row![
-        text(m.name.to_string()).size(15).color(WHITE),
-        Space::new().width(Fill),
-        badge(format!("v{}", m.version)),
-        Space::new().width(8),
-        badge(format!("API {}", m.api_version.major)),
-    ]
-    .align_y(iced::Center);
+fn toggle_button<'a>(id: &str, disabled: bool) -> Element<'a, Message> {
+    // Label shows the action the click performs.
+    let (label, on, off) = if disabled {
+        ("Enable", Color { r: 0.18, g: 0.5, b: 0.25, a: 1.0 }, Color { r: 0.22, g: 0.6, b: 0.3, a: 1.0 })
+    } else {
+        ("Disable", Color { r: 0.4, g: 0.22, b: 0.22, a: 1.0 }, Color { r: 0.55, g: 0.28, b: 0.28, a: 1.0 })
+    };
+    let want_enabled = disabled; // clicking flips the state
+    let id_owned = id.to_string();
+    button(text(label).size(12).color(WHITE))
+        .padding([3, 12])
+        .on_press(Message::SetPluginEnabled(id_owned, want_enabled))
+        .style(move |_: &Theme, status| {
+            let bg = match status {
+                button::Status::Hovered | button::Status::Pressed => off,
+                _ => on,
+            };
+            button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: WHITE,
+                border: Border { radius: 4.0.into(), ..Default::default() },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
+fn plugin_card<'a>(m: &PluginManifest, disabled: bool) -> Element<'a, Message> {
+    let mut header = row![text(m.name.to_string()).size(15).color(WHITE)];
+    if disabled {
+        header = header.push(Space::new().width(8));
+        header = header.push(badge("Disabled".to_string()));
+    }
+    let header = header
+        .push(Space::new().width(Fill))
+        .push(badge(format!("v{}", m.version)))
+        .push(Space::new().width(8))
+        .push(badge(format!("API {}", m.api_version.major)))
+        .push(Space::new().width(10))
+        .push(toggle_button(m.id, disabled))
+        .align_y(iced::Center);
 
     let id_line = text(m.id.to_string()).size(11).color(ACCENT);
     let desc = text(m.description.to_string()).size(12).color(DIM);
@@ -107,7 +140,10 @@ fn plugin_card<'a>(m: &PluginManifest) -> Element<'a, Message> {
         .into()
 }
 
-pub fn view_window<'a>(plugins: &[&'static PluginManifest]) -> Element<'a, Message> {
+pub fn view_window<'a>(
+    plugins: &[&'static PluginManifest],
+    disabled: &FxHashSet<String>,
+) -> Element<'a, Message> {
     let title = text("Installed Plugins").size(20).color(WHITE);
     let subtitle = text(format!(
         "{} add-on{} compiled into this build",
@@ -124,7 +160,7 @@ pub fn view_window<'a>(plugins: &[&'static PluginManifest]) -> Element<'a, Messa
     } else {
         let mut list = column![].spacing(10);
         for m in plugins {
-            list = list.push(plugin_card(m));
+            list = list.push(plugin_card(m, disabled.contains(m.id)));
         }
         scrollable(list.width(Fill)).height(Fill).into()
     };

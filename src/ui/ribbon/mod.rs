@@ -135,6 +135,17 @@ impl Ribbon {
             self.active = index;
         }
     }
+
+    /// Replace the tab list (e.g. after a plugin is enabled/disabled in the
+    /// Plugin Manager). Clamps the active tab so it stays in range.
+    pub fn set_modules(&mut self, modules: Vec<Box<dyn CadModule>>) {
+        self.modules = modules;
+        if self.active >= self.modules.len() {
+            self.active = self.modules.len().saturating_sub(1);
+        }
+        self.active_tool = None;
+        self.open_dropdown = None;
+    }
     pub fn activate_tool(&mut self, id: &str) {
         self.active_tool = Some(id.to_string());
     }
