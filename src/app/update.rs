@@ -2493,8 +2493,13 @@ impl OpenCADStudio {
                             } else {
                                 None
                             };
-                            self.snapper
-                                .otrack_snap(cursor_world, view_proj, bounds, step)
+                            self.snapper.otrack_snap(
+                                cursor_world,
+                                view_proj,
+                                bounds,
+                                step,
+                                self.last_point,
+                            )
                         } else {
                             None
                         }
@@ -3100,7 +3105,8 @@ impl OpenCADStudio {
                             } else {
                                 None
                             };
-                            self.snapper.otrack_snap(raw, vp_mat, bounds, step)
+                            self.snapper
+                                .otrack_snap(raw, vp_mat, bounds, step, self.last_point)
                         } else {
                             None
                         };

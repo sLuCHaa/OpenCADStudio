@@ -244,14 +244,22 @@ impl Snapper {
     /// acquired tracking points, in the XY plane. Without `polar_step_deg` the
     /// rays are horizontal / vertical (0° / 90°); with it, every polar
     /// increment is a candidate so the user can track along POLAR angles.
+    ///
+    /// When the cursor sits near the crossing of two active vectors from
+    /// different origins the intersection point wins, so the cursor locks onto
+    /// the exact crossing rather than a free point along one vector:
+    ///   * two OTRACK vectors from different tracking points (#112), and
+    ///   * a POLAR vector from `last_point` crossing an OTRACK vector (#111).
+    ///
     /// Returns the aligned point, the unit ray direction (pointing toward the
-    /// cursor side, used for typed-distance entry), and the tracking point.
+    /// cursor side, used for typed-distance entry), and the originating point.
     pub fn otrack_snap(
         &self,
         cursor_world: Vec3,
         view_proj: glam::Mat4,
         bounds: iced::Rectangle,
         polar_step_deg: Option<f32>,
+        last_point: Option<Vec3>,
     ) -> Option<OtrackHit> {
         if !self.otrack_enabled || self.tracking_points.is_empty() {
             return None;
@@ -259,6 +267,10 @@ impl Snapper {
 
         let cursor_screen = world_to_screen(cursor_world, view_proj, bounds);
         let r = self.snap_radius_px;
+        let screen_dist = |w: Vec3| {
+            let s = world_to_screen(w, view_proj, bounds);
+            ((s.x - cursor_screen.x).powi(2) + (s.y - cursor_screen.y).powi(2)).sqrt()
+        };
 
         // Candidate angles in [0,180); each ray extends both ways via the
         // signed projection `t`, so 0°/90° cover horizontal/vertical.
@@ -277,26 +289,100 @@ impl Snapper {
             }
         }
 
-        let mut best: Option<(f32, OtrackHit)> = None;
-        for &tp in self.tracking_points.iter() {
+        // Build candidate rays tagged by origin group so two rays sharing an
+        // origin (a parallel pencil that only meets at that origin) are never
+        // intersected with each other.
+        struct Ray {
+            origin: Vec3,
+            dir: Vec3,
+            group: usize,
+        }
+        let mut rays: Vec<Ray> = Vec::new();
+        for (gi, &tp) in self.tracking_points.iter().enumerate() {
             for &adeg in &angles {
                 let ar = adeg.to_radians();
-                let dir = Vec3::new(ar.cos(), ar.sin(), 0.0);
-                let t = (cursor_world.x - tp.x) * dir.x + (cursor_world.y - tp.y) * dir.y;
-                let aligned = Vec3::new(tp.x + dir.x * t, tp.y + dir.y * t, tp.z);
-                let s = world_to_screen(aligned, view_proj, bounds);
-                let sd = ((s.x - cursor_screen.x).powi(2) + (s.y - cursor_screen.y).powi(2)).sqrt();
-                if sd < r && best.as_ref().map_or(true, |(bd, _)| sd < *bd) {
-                    let dir_out = if t >= 0.0 { dir } else { -dir };
-                    best = Some((
+                rays.push(Ray {
+                    origin: tp,
+                    dir: Vec3::new(ar.cos(), ar.sin(), 0.0),
+                    group: gi,
+                });
+            }
+        }
+        // OTRACK rays come first; polar rays (appended below) only participate
+        // in intersection locking, never in single-ray fallback.
+        let otrack_ray_count = rays.len();
+        const POLAR_GROUP: usize = usize::MAX;
+        if let (Some(step), Some(lp)) = (polar_step_deg.filter(|s| *s > 1e-3), last_point) {
+            let mut a = 0.0_f32;
+            while a < 180.0 - 1e-3 {
+                let ar = a.to_radians();
+                rays.push(Ray {
+                    origin: lp,
+                    dir: Vec3::new(ar.cos(), ar.sin(), 0.0),
+                    group: POLAR_GROUP,
+                });
+                a += step;
+            }
+        }
+
+        // ── Intersection lock — crossing of two vectors from distinct origins.
+        let mut best_x: Option<(f32, OtrackHit)> = None;
+        for i in 0..rays.len() {
+            for j in (i + 1)..rays.len() {
+                if rays[i].group == rays[j].group {
+                    continue;
+                }
+                let Some(x) =
+                    line_intersect_xy(rays[i].origin, rays[i].dir, rays[j].origin, rays[j].dir)
+                else {
+                    continue;
+                };
+                let sd = screen_dist(x);
+                if sd < r && best_x.as_ref().map_or(true, |(bd, _)| sd < *bd) {
+                    // Report an OTRACK ray as base/dir for typed-distance entry.
+                    let ot = if rays[i].group != POLAR_GROUP {
+                        &rays[i]
+                    } else {
+                        &rays[j]
+                    };
+                    let t = (x.x - ot.origin.x) * ot.dir.x + (x.y - ot.origin.y) * ot.dir.y;
+                    let dir_out = if t >= 0.0 { ot.dir } else { -ot.dir };
+                    best_x = Some((
                         sd,
                         OtrackHit {
-                            aligned,
+                            aligned: x,
                             dir: dir_out,
-                            base: tp,
+                            base: ot.origin,
                         },
                     ));
                 }
+            }
+        }
+        if let Some((_, h)) = best_x {
+            return Some(h);
+        }
+
+        // ── Single-ray alignment (OTRACK rays only) ──
+        let mut best: Option<(f32, OtrackHit)> = None;
+        for ray in rays.iter().take(otrack_ray_count) {
+            let t = (cursor_world.x - ray.origin.x) * ray.dir.x
+                + (cursor_world.y - ray.origin.y) * ray.dir.y;
+            let aligned = Vec3::new(
+                ray.origin.x + ray.dir.x * t,
+                ray.origin.y + ray.dir.y * t,
+                ray.origin.z,
+            );
+            let sd = screen_dist(aligned);
+            if sd < r && best.as_ref().map_or(true, |(bd, _)| sd < *bd) {
+                let dir_out = if t >= 0.0 { ray.dir } else { -ray.dir };
+                best = Some((
+                    sd,
+                    OtrackHit {
+                        aligned,
+                        dir: dir_out,
+                        base: ray.origin,
+                    },
+                ));
             }
         }
         best.map(|(_, h)| h)
@@ -732,6 +818,19 @@ fn seg_intersect_xy(a0: Vec3, a1: Vec3, b0: Vec3, b1: Vec3) -> Option<Vec3> {
         return None;
     }
     Some(Vec3::new(a0.x + t * d1x, a0.y + t * d1y, 0.0))
+}
+
+/// Intersection of two infinite lines in the XY plane, each given by an origin
+/// and a direction. Returns `None` when the lines are parallel.
+fn line_intersect_xy(o1: Vec3, d1: Vec3, o2: Vec3, d2: Vec3) -> Option<Vec3> {
+    let cross = d1.x * d2.y - d1.y * d2.x;
+    if cross.abs() < 1e-9 {
+        return None;
+    }
+    let ex = o2.x - o1.x;
+    let ey = o2.y - o1.y;
+    let t = (ex * d2.y - ey * d2.x) / cross;
+    Some(Vec3::new(o1.x + d1.x * t, o1.y + d1.y * t, o1.z))
 }
 
 /// Screen-space 2D segment intersection.  Returns `(t, s)` parameters if found.
