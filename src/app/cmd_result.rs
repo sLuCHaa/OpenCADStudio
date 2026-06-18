@@ -557,8 +557,7 @@ impl OpenCADStudio {
                         .into_iter()
                         .map(|mut entity| {
                             crate::scene::view::dispatch::apply_transform(&mut entity, &translate);
-                            entity.common_mut().handle = acadrust::Handle::NULL;
-                            self.tabs[i].scene.add_entity(entity)
+                            self.tabs[i].scene.add_entity_clone(entity)
                         })
                         .filter(|h| !h.is_null())
                         .collect();

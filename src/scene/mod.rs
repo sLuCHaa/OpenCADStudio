@@ -5018,6 +5018,38 @@ impl Scene {
         self.bump_geometry_no_blocks();
     }
 
+    /// Give a freshly-cloned entity brand-new handles for every *inline*
+    /// sub-entity that stores one (INSERT attributes, 3D-polyline vertices).
+    /// `document.add_entity` only assigns the top-level handle, so without this
+    /// a copy keeps its source's sub-handles — duplicate handles that corrupt
+    /// the saved DWG (file won't reopen in other CAD apps). Vertices that don't
+    /// store a handle (LwPolyline / heavy 2D polyline) get one from the writer,
+    /// so they need no fix-up here. (#129)
+    fn reset_clone_subhandles(doc: &mut acadrust::CadDocument, entity: &mut EntityType) {
+        match entity {
+            EntityType::Insert(ins) => {
+                for att in ins.attributes.iter_mut() {
+                    att.common.handle = doc.allocate_handle();
+                }
+            }
+            EntityType::Polyline3D(p) => {
+                for v in p.vertices.iter_mut() {
+                    v.handle = doc.allocate_handle();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Add a freshly-cloned entity, allocating a new handle for it *and* every
+    /// inline sub-entity so the copy never shares a handle with its source.
+    /// Use this (not `add_entity`) whenever inserting a duplicate. (#129)
+    pub fn add_entity_clone(&mut self, mut entity: EntityType) -> Handle {
+        Self::reset_clone_subhandles(&mut self.document, &mut entity);
+        entity.common_mut().handle = Handle::NULL;
+        self.add_entity(entity)
+    }
+
     pub fn copy_entities(&mut self, handles: &[Handle], t: &EntityTransform) -> Vec<Handle> {
         let hatch_offset = if self.current_layout == "Model" {
             self.world_offset
@@ -5031,6 +5063,7 @@ impl Scene {
         let mut new_handles = Vec::with_capacity(clones.len());
         for mut entity in clones {
             view::dispatch::apply_transform(&mut entity, t);
+            Self::reset_clone_subhandles(&mut self.document, &mut entity);
             entity.common_mut().handle = Handle::NULL;
             let h = self.document.add_entity(entity).unwrap_or(Handle::NULL);
             if !h.is_null() {
