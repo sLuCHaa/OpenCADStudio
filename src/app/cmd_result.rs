@@ -547,6 +547,9 @@ impl OpenCADStudio {
                     let delta = base_pt - self.clipboard_centroid;
                     let translate = crate::command::EntityTransform::Translate(delta);
                     self.push_undo_snapshot(i, "PASTECLIP");
+                    // Recreate any layer / linetype / style the copied entities
+                    // need but this drawing lacks (cross-drawing paste). (#129)
+                    self.merge_clipboard_deps(i);
                     let count = self.clipboard.len();
                     let new_handles: Vec<Handle> = self
                         .clipboard
@@ -1675,6 +1678,47 @@ impl OpenCADStudio {
     }
 
     /// Restore the tangent-snap / ortho state that was in effect before the command started.
+    /// Recreate clipboard-dependency records (layer / linetype / text + dim
+    /// style) in tab `i`'s document for any the copied entities reference but
+    /// this drawing doesn't already have. Each recreated record gets a fresh
+    /// handle from the target document so it can't collide with an existing
+    /// one. No-op for same-document pastes (the records already exist). (#129)
+    fn merge_clipboard_deps(&mut self, i: usize) {
+        use acadrust::TableEntry;
+        if self.clipboard_deps.is_empty() {
+            return;
+        }
+        let doc = &mut self.tabs[i].scene.document;
+        for rec in &self.clipboard_deps.layers {
+            if !doc.layers.contains(rec.name()) {
+                let mut r = rec.clone();
+                r.set_handle(doc.allocate_handle());
+                let _ = doc.layers.add(r);
+            }
+        }
+        for rec in &self.clipboard_deps.linetypes {
+            if !doc.line_types.contains(rec.name()) {
+                let mut r = rec.clone();
+                r.set_handle(doc.allocate_handle());
+                let _ = doc.line_types.add(r);
+            }
+        }
+        for rec in &self.clipboard_deps.text_styles {
+            if !doc.text_styles.contains(rec.name()) {
+                let mut r = rec.clone();
+                r.set_handle(doc.allocate_handle());
+                let _ = doc.text_styles.add(r);
+            }
+        }
+        for rec in &self.clipboard_deps.dim_styles {
+            if !doc.dim_styles.contains(rec.name()) {
+                let mut r = rec.clone();
+                r.set_handle(doc.allocate_handle());
+                let _ = doc.dim_styles.add(r);
+            }
+        }
+    }
+
     fn restore_pre_cmd_tangent(&mut self) {
         if let Some(was_on) = self.pre_cmd_tangent.take() {
             if !was_on {

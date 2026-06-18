@@ -527,6 +527,10 @@ impl OpenCADStudio {
                         &self.tabs[i].scene.wire_models_for(&handles),
                     );
                     self.clipboard = entities;
+                    self.clipboard_deps = super::ClipboardDeps::capture(
+                        &self.tabs[i].scene.document,
+                        &self.clipboard,
+                    );
                     self.command_line.push_info(&format!(
                         "{} object(s) copied to clipboard.",
                         self.clipboard.len()
@@ -556,6 +560,10 @@ impl OpenCADStudio {
                     );
                     let count = entities.len();
                     self.clipboard = entities;
+                    self.clipboard_deps = super::ClipboardDeps::capture(
+                        &self.tabs[i].scene.document,
+                        &self.clipboard,
+                    );
                     self.push_undo_snapshot(i, "CUTCLIP");
                     self.tabs[i].scene.erase_entities(&handles);
                     self.tabs[i].scene.deselect_all();

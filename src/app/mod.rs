@@ -343,6 +343,11 @@ pub(super) struct OpenCADStudio {
     clipboard: Vec<acadrust::EntityType>,
     /// Centroid of the clipboard entities (world XY plane).
     clipboard_centroid: glam::Vec3,
+    /// Table records (layer / linetype / text + dim style) the clipboard
+    /// entities reference, captured from the source drawing at copy time so a
+    /// paste into a *different* drawing can recreate any that are missing —
+    /// otherwise the pasted entities would dangle on a non-existent layer.
+    clipboard_deps: ClipboardDeps,
     /// True while the Shift key is held — drives subtractive pick (Shift+click
     /// removes the picked entity from the selection). Tracked from keyboard
     /// modifier-change events since mouse click messages carry no modifiers.
@@ -608,6 +613,80 @@ pub enum ColorPickTarget {
     Ribbon,
     /// A layer's colour, by panel row index.
     Layer(usize),
+}
+
+/// Table records the clipboard entities depend on, snapshotted from the source
+/// drawing at copy time. On paste into a drawing that lacks any of them, the
+/// missing records are recreated (with a fresh handle) so the entities keep
+/// their layer / linetype / style instead of dangling. See #129.
+#[derive(Default, Clone)]
+pub struct ClipboardDeps {
+    pub layers: Vec<acadrust::tables::Layer>,
+    pub linetypes: Vec<acadrust::tables::LineType>,
+    pub text_styles: Vec<acadrust::tables::TextStyle>,
+    pub dim_styles: Vec<acadrust::tables::DimStyle>,
+}
+
+impl ClipboardDeps {
+    /// Snapshot the records `entities` reference that exist in `doc`.
+    pub fn capture(doc: &acadrust::CadDocument, entities: &[acadrust::EntityType]) -> Self {
+        use acadrust::EntityType;
+        use std::collections::BTreeSet;
+        let (mut layers, mut ltypes, mut tstyles, mut dstyles) = (
+            BTreeSet::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        );
+        let is_special = |n: &str| {
+            n.is_empty()
+                || n.eq_ignore_ascii_case("ByLayer")
+                || n.eq_ignore_ascii_case("ByBlock")
+        };
+        for e in entities {
+            let c = e.common();
+            if !c.layer.is_empty() {
+                layers.insert(c.layer.clone());
+            }
+            if !is_special(&c.linetype) && !c.linetype.eq_ignore_ascii_case("Continuous") {
+                ltypes.insert(c.linetype.clone());
+            }
+            match e {
+                EntityType::Text(t) if !t.style.is_empty() => {
+                    tstyles.insert(t.style.clone());
+                }
+                EntityType::MText(t) if !t.style.is_empty() => {
+                    tstyles.insert(t.style.clone());
+                }
+                EntityType::AttributeEntity(a) if !a.text_style.is_empty() => {
+                    tstyles.insert(a.text_style.clone());
+                }
+                EntityType::AttributeDefinition(a) if !a.text_style.is_empty() => {
+                    tstyles.insert(a.text_style.clone());
+                }
+                EntityType::Dimension(d) if !d.base().style_name.is_empty() => {
+                    dstyles.insert(d.base().style_name.clone());
+                }
+                EntityType::Leader(l) if !l.dimension_style.is_empty() => {
+                    dstyles.insert(l.dimension_style.clone());
+                }
+                _ => {}
+            }
+        }
+        ClipboardDeps {
+            layers: layers.iter().filter_map(|n| doc.layers.get(n).cloned()).collect(),
+            linetypes: ltypes.iter().filter_map(|n| doc.line_types.get(n).cloned()).collect(),
+            text_styles: tstyles.iter().filter_map(|n| doc.text_styles.get(n).cloned()).collect(),
+            dim_styles: dstyles.iter().filter_map(|n| doc.dim_styles.get(n).cloned()).collect(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layers.is_empty()
+            && self.linetypes.is_empty()
+            && self.text_styles.is_empty()
+            && self.dim_styles.is_empty()
+    }
 }
 
 /// Which in-canvas modal dialog is currently open (Plan B). At most one shows
@@ -1517,6 +1596,7 @@ impl OpenCADStudio {
             update_notice_body: None,
             clipboard: Vec::new(),
             clipboard_centroid: glam::Vec3::ZERO,
+            clipboard_deps: ClipboardDeps::default(),
             shift_down: false,
             mtext_editor: None,
             text_inline: None,
