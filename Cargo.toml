@@ -91,8 +91,12 @@ serde_json = "1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
+# fetch() returns a JS Promise; bridge it to a Rust future for the per-script
+# web font loader (#141).
+wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-# window.open (external URLs) + Blob/anchor file downloads (Save).
+# window.open (external URLs) + Blob/anchor file downloads (Save) + fetch()
+# (Response) for the lazy per-script web font loader (#141).
 web-sys = { version = "0.3", features = [
     "Window",
     "Navigator",
@@ -101,6 +105,7 @@ web-sys = { version = "0.3", features = [
     "HtmlAnchorElement",
     "Blob",
     "Url",
+    "Response",
 ] }
 # Browsers without WebGPU (e.g. Firefox by default) need wgpu's WebGL2 backend;
 # `webgl` enables it. `fira-sans` embeds the default UI font — the web has no

@@ -1630,11 +1630,20 @@ impl OpenCADStudio {
         } else {
             Subscription::none()
         };
+        // Web: poll for per-script fonts that a drawing's text needs but hasn't
+        // fetched yet. Cheap — `PollWebFonts` is a no-op when nothing is
+        // pending. Native has system fonts, so no polling. (#141)
+        #[cfg(target_arch = "wasm32")]
+        let web_fonts =
+            iced::time::every(std::time::Duration::from_millis(300)).map(|_| Message::PollWebFonts);
+        #[cfg(not(target_arch = "wasm32"))]
+        let web_fonts = Subscription::none();
         iced::Subscription::batch([
             frames,
             history_tick,
             grip_dwell,
             caret_blink,
+            web_fonts,
             event::listen_with(|ev, status, win_id| {
                 use iced::event::Status;
                 match ev {

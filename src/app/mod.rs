@@ -794,6 +794,11 @@ pub enum DsField {
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick(Instant),
+    /// Web: periodic check for per-script fonts a drawing needs but hasn't
+    /// fetched yet (#141). Native: never emitted.
+    PollWebFonts,
+    /// Web: a per-script font finished fetching — `Ok(bytes)` or `Err(reason)`.
+    WebFontLoaded(crate::scene::text::web_font::Script, Result<Vec<u8>, String>),
     OpenFile,
     /// File picker returned. `Some((path, size_in_bytes))` → start loading;
     /// `None` → user cancelled the dialog (no overlay shown).

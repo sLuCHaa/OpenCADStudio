@@ -364,6 +364,42 @@ impl OpenCADStudio {
 
     fn update_inner(&mut self, msg: Message) -> Task<Message> {
         match msg {
+            // Web: a drawing referenced a script whose Noto subset isn't loaded
+            // yet (recorded during text tessellation). Kick off one fetch per
+            // pending script; the result comes back as `WebFontLoaded`. (#141)
+            Message::PollWebFonts => {
+                let pending = crate::scene::text::web_font::take_pending();
+                if pending.is_empty() {
+                    return Task::none();
+                }
+                Task::batch(pending.into_iter().map(|script| {
+                    Task::perform(crate::scene::text::web_font::fetch(script), move |res| {
+                        Message::WebFontLoaded(script, res)
+                    })
+                }))
+            }
+
+            // Web: a per-script font arrived. Store it, drop the stale fallback
+            // glyph cache (entries that resolved to nothing while it loaded),
+            // and re-tessellate so the text appears. (#141)
+            Message::WebFontLoaded(script, res) => {
+                match res {
+                    Ok(bytes) => {
+                        crate::scene::text::web_font::insert(script, Some(bytes));
+                        crate::scene::text::ttf_glyph::clear_fallback_cache();
+                        for tab in self.tabs.iter_mut() {
+                            tab.scene.bump_geometry();
+                        }
+                    }
+                    Err(e) => {
+                        crate::scene::text::web_font::insert(script, None);
+                        self.command_line
+                            .push_error(&format!("Font load failed ({script:?}): {e}"));
+                    }
+                }
+                Task::none()
+            }
+
             Message::Tick(t) => {
                 let i = self.active_tab;
                 self.tabs[i].scene.update(t - self.start);
@@ -500,6 +536,15 @@ impl OpenCADStudio {
 
                 self.tabs[i].current_path = Some(path.clone());
                 self.tabs[i].scene.document = doc;
+                // Route shared CJK ideographs to the language matching this
+                // drawing's code page (web per-language font split). Drop the
+                // glyph cache if it changed so Han re-resolves to the new
+                // language's font; geometry is (re)built below regardless. (#141)
+                if crate::scene::text::web_font::set_cjk_lang_from_codepage(
+                    &self.tabs[i].scene.document.header.code_page,
+                ) {
+                    crate::scene::text::ttf_glyph::clear_fallback_cache();
+                }
                 // Current model-space annotation scale comes from the drawing's
                 // CANNOSCALEVALUE (paper/drawing factor); the multiplier we use
                 // for text/dim sizing is its inverse (1:50 -> 0.02 -> 50.0).
@@ -1298,6 +1343,14 @@ impl OpenCADStudio {
                     self.sync_ribbon_from_selection();
                     // Grid/snap follow the newly active drawing's viewport.
                     self.adopt_view_display(idx);
+                    // Shared CJK ideographs follow the newly active drawing's
+                    // language; re-tessellate if it differs from the last. (#141)
+                    if crate::scene::text::web_font::set_cjk_lang_from_codepage(
+                        &self.tabs[idx].scene.document.header.code_page,
+                    ) {
+                        crate::scene::text::ttf_glyph::clear_fallback_cache();
+                        self.tabs[idx].scene.bump_geometry();
+                    }
                 }
                 Task::none()
             }

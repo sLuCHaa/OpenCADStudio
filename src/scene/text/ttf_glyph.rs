@@ -263,11 +263,35 @@ pub fn fallback_glyph(ch: char) -> Option<Arc<Glyph>> {
     built
 }
 
-/// Web: no system fonts → no cosmic-text fallback (LFF-missing glyphs simply
-/// do not render).
+/// Drop the cached fallback glyphs so the next lookup re-resolves. The web
+/// build calls this when a per-script font finishes loading: glyphs that
+/// resolved to `None` while the font was still in flight then get a real
+/// outline. (#141)
+pub fn clear_fallback_cache() {
+    fallback_cache().lock().unwrap().clear();
+}
+
+/// Web: outline the glyph from the lazily-fetched per-script Noto subset that
+/// covers it. Returns `None` while that font is still loading (the char renders
+/// once it arrives and the fallback cache is cleared). (#141)
 #[cfg(target_arch = "wasm32")]
-fn build_fallback(_ch: char) -> Option<Arc<Glyph>> {
-    None
+fn build_fallback(ch: char) -> Option<Arc<Glyph>> {
+    let script = crate::scene::text::web_font::script_of(ch)?;
+    let bytes = crate::scene::text::web_font::request(script)?;
+    let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
+    let gid = face.glyph_index(ch)?;
+    let k = cap_scale(&face);
+    let advance = face.glyph_hor_advance(gid).unwrap_or(0) as f32 * k;
+    let mut fl = OutlineFlattener::new(k);
+    face.outline_glyph(gid, &mut fl);
+    fl.flush();
+    if fl.contours.is_empty() {
+        return None;
+    }
+    Some(Arc::new(Glyph {
+        strokes: fl.contours,
+        advance,
+    }))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

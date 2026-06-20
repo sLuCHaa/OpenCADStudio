@@ -42,6 +42,9 @@
     <!-- Trunk builds the wasm32 binary without the `solid3d` feature (no 3-D
          solid kernel / vtkio C deps on the web). See issue #45. -->
     <link data-trunk rel="rust" data-bin="OpenCADStudio" data-cargo-no-default-features />
+    <!-- Per-script Noto subsets, fetched lazily at runtime (one alphabet per
+         file) so CAD text renders non-Latin scripts on the web. (#141) -->
+    <link data-trunk rel="copy-dir" href="web/fonts" />
   </head>
   <body>
     <div id="loading">
