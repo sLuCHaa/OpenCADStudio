@@ -17,6 +17,20 @@ pub fn open_url(url: &str) {
     }
 }
 
+/// Web: read text from the system clipboard via the async Clipboard API.
+/// iced's own `clipboard::read` is a no-op on the web (the browser clipboard is
+/// async + permission-gated), so the editor paste paths use this instead. The
+/// Ctrl+V keypress that drives it is a user gesture, so the read is permitted.
+/// Returns `None` when denied, empty, or unsupported.
+#[cfg(target_arch = "wasm32")]
+pub async fn read_clipboard_text() -> Option<String> {
+    let clipboard = web_sys::window()?.navigator().clipboard();
+    let value = wasm_bindgen_futures::JsFuture::from(clipboard.read_text())
+        .await
+        .ok()?;
+    value.as_string()
+}
+
 /// Turn an `rfd` file handle into a `PathBuf` the rest of the app keys on.
 ///
 /// Desktop returns the real filesystem path. The browser has no path, so we

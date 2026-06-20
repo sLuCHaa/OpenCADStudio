@@ -1769,7 +1769,7 @@ impl OpenCADStudio {
                                 "y" => Some(Message::Redo),
                                 "c" => Some(Message::Command("COPYCLIP".to_string())),
                                 "x" => Some(Message::Command("CUTCLIP".to_string())),
-                                "v" => Some(Message::Command("PASTECLIP".to_string())),
+                                "v" => Some(Message::PasteShortcut),
                                 _ => None,
                             },
                             // Printable glyphs are already handled by the

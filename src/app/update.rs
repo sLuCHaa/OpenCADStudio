@@ -4840,6 +4840,57 @@ impl OpenCADStudio {
                 }
                 Task::none()
             }
+
+            // Ctrl+V. The MText editor and (on the web) the TEXT editor read the
+            // system clipboard asynchronously — the only paste path that works
+            // in the browser, where the synchronous clipboard the iced
+            // text_input expects is empty. With no editor open it falls through
+            // to the entity paste command.
+            Message::PasteShortcut => {
+                if self.mtext_editor.is_some() {
+                    // Web reads via the browser's async Clipboard API (iced's
+                    // sync clipboard read returns nothing there); native uses
+                    // iced's clipboard.
+                    #[cfg(target_arch = "wasm32")]
+                    return Task::perform(
+                        crate::sys::read_clipboard_text(),
+                        Message::MTextPasteClip,
+                    );
+                    #[cfg(not(target_arch = "wasm32"))]
+                    return iced::clipboard::read().map(Message::MTextPasteClip);
+                }
+                if self.text_inline.is_some() {
+                    // Web: the iced text_input can't reach the async clipboard,
+                    // so paste it ourselves. Native: the focused text_input
+                    // already handled Ctrl+V — doing it here would duplicate.
+                    #[cfg(target_arch = "wasm32")]
+                    return Task::perform(
+                        crate::sys::read_clipboard_text(),
+                        Message::TextInlinePasteClip,
+                    );
+                    #[cfg(not(target_arch = "wasm32"))]
+                    return Task::none();
+                }
+                Task::done(Message::Command("PASTECLIP".to_string()))
+            }
+            Message::MTextPasteClip(text) => {
+                if let Some(text) = text.filter(|t| !t.is_empty()) {
+                    // CR/LF arrive as line breaks; MText keeps "\n", drop "\r".
+                    self.mtext_type(&text.replace('\r', ""));
+                    self.rebuild_mtext_preview();
+                }
+                Task::none()
+            }
+            Message::TextInlinePasteClip(text) => {
+                if let Some(text) = text.filter(|t| !t.is_empty()) {
+                    // Single-line field: collapse newlines, append at the end.
+                    let flat = text.replace(['\r', '\n'], " ");
+                    if let Some(ed) = self.text_inline.as_mut() {
+                        ed.value.push_str(&flat);
+                    }
+                }
+                Task::none()
+            }
             Message::TextInlineOk => {
                 self.text_inline_commit();
                 Task::none()

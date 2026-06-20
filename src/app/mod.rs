@@ -799,6 +799,14 @@ pub enum Message {
     PollWebFonts,
     /// Web: a per-script font finished fetching — `Ok(bytes)` or `Err(reason)`.
     WebFontLoaded(crate::scene::text::web_font::Script, Result<Vec<u8>, String>),
+    /// Ctrl+V. Routed by `update`: into the open text/MText editor (via an async
+    /// system-clipboard read, which is the only paste path that works on the
+    /// web) or, with no editor open, the entity paste command.
+    PasteShortcut,
+    /// System-clipboard text read for the MText editor (`None` = empty/denied).
+    MTextPasteClip(Option<String>),
+    /// System-clipboard text read for the single-line TEXT editor.
+    TextInlinePasteClip(Option<String>),
     OpenFile,
     /// File picker returned. `Some((path, size_in_bytes))` → start loading;
     /// `None` → user cancelled the dialog (no overlay shown).

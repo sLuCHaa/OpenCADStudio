@@ -106,6 +106,9 @@ web-sys = { version = "0.3", features = [
     "Blob",
     "Url",
     "Response",
+    # Async clipboard read for paste into the text/MText editors (iced's own
+    # clipboard read is a no-op on the web).
+    "Clipboard",
 ] }
 # Browsers without WebGPU (e.g. Firefox by default) need wgpu's WebGL2 backend;
 # `webgl` enables it. `fira-sans` embeds the default UI font — the web has no
