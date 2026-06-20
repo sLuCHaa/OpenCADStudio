@@ -311,7 +311,10 @@ mod loader {
             let version: libloading::Symbol<extern "C" fn() -> u32> = lib
                 .get(b"ocs_plugin_api_version")
                 .map_err(|_| "missing ocs_plugin_api_version symbol".to_string())?;
-            let v = version();
+            // Wrap the version + register calls in a panic guard so a plugin
+            // that panics during load can't take down the host. (#145)
+            let v = crate::plugin::guard("version", || version())
+                .ok_or_else(|| "ocs_plugin_api_version panicked".to_string())?;
             if v != ocs_plugin_api::API_VERSION {
                 return Err(format!(
                     "API version {v} != host {}",
@@ -324,12 +327,16 @@ mod loader {
             > = lib
                 .get(b"ocs_plugin_register")
                 .map_err(|_| "missing ocs_plugin_register symbol".to_string())?;
-            let raw = register();
+            let raw = crate::plugin::guard("register", || register())
+                .ok_or_else(|| "ocs_plugin_register panicked".to_string())?;
             if raw.is_null() {
                 return Err("ocs_plugin_register returned null".into());
             }
             let plugin = *Box::from_raw(raw);
-            let id = plugin.manifest().id.to_string();
+            // The manifest read happens once at load; guard it too — a buggy
+            // manifest() that panics here would otherwise crash startup. (#145)
+            let id = crate::plugin::guard("manifest", || plugin.manifest().id.to_string())
+                .ok_or_else(|| "plugin manifest() panicked".to_string())?;
             Ok(LoadedPlugin {
                 plugin,
                 _lib: lib,

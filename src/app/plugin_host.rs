@@ -226,23 +226,37 @@ impl crate::command::CadCommand for PluginInteractiveAdapter {
     fn name(&self) -> &'static str {
         "PLUGIN"
     }
+    // Every call into the plugin runs under a panic guard (#145): a buggy plugin
+    // that panics mid-command leaves the host running — the command just ends.
     fn prompt(&self) -> String {
-        self.inner.prompt()
+        crate::plugin::guard("InteractiveCommand::prompt", || self.inner.prompt())
+            .unwrap_or_default()
     }
     fn on_point(&mut self, pt: glam::Vec3) -> crate::command::CmdResult {
-        plugin_step_to_result(self.inner.on_point([pt.x as f64, pt.y as f64, pt.z as f64]))
+        crate::plugin::guard("InteractiveCommand::on_point", || {
+            self.inner.on_point([pt.x as f64, pt.y as f64, pt.z as f64])
+        })
+        .map(plugin_step_to_result)
+        .unwrap_or(crate::command::CmdResult::Cancel)
     }
     fn on_enter(&mut self) -> crate::command::CmdResult {
-        plugin_step_to_result(self.inner.on_enter())
+        crate::plugin::guard("InteractiveCommand::on_enter", || self.inner.on_enter())
+            .map(plugin_step_to_result)
+            .unwrap_or(crate::command::CmdResult::Cancel)
     }
     fn needs_entity_pick(&self) -> bool {
-        self.inner.needs_object_pick()
+        crate::plugin::guard("InteractiveCommand::needs_object_pick", || {
+            self.inner.needs_object_pick()
+        })
+        .unwrap_or(false)
     }
     fn on_entity_pick(&mut self, handle: Handle, pt: glam::Vec3) -> crate::command::CmdResult {
-        plugin_step_to_result(
+        crate::plugin::guard("InteractiveCommand::on_object_pick", || {
             self.inner
-                .on_object_pick(handle, [pt.x as f64, pt.y as f64, pt.z as f64]),
-        )
+                .on_object_pick(handle, [pt.x as f64, pt.y as f64, pt.z as f64])
+        })
+        .map(plugin_step_to_result)
+        .unwrap_or(crate::command::CmdResult::Cancel)
     }
 }
 

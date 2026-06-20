@@ -23,8 +23,15 @@ pub fn ribbon_modules_enabled(
         let mut addons: Vec<(i32, Box<dyn CadModule>)> = Vec::new();
         crate::plugin::external::with_loaded(|loaded| {
             for lp in loaded {
-                if !disabled.contains(lp.id.as_str()) {
-                    addons.push((lp.plugin().manifest().ribbon_order, lp.plugin().ribbon()));
+                if disabled.contains(lp.id.as_str()) {
+                    continue;
+                }
+                // Guard the plugin's ribbon build so a panic there can't take
+                // down the host — the plugin just contributes no tab. (#145)
+                if let Some(entry) = crate::plugin::guard("ribbon", || {
+                    (lp.plugin().manifest().ribbon_order, lp.plugin().ribbon())
+                }) {
+                    addons.push(entry);
                 }
             }
         });
@@ -48,7 +55,11 @@ pub(crate) fn try_dispatch(app: &mut OpenCADStudio, tab: usize, cmd: &str) -> bo
                 if disabled.contains(lp.id.as_str()) {
                     continue;
                 }
-                if lp.plugin().dispatch(&mut host, cmd) {
+                // A panic inside the plugin's dispatch must not crash the host;
+                // treat a panicking plugin as "didn't handle it". (#145)
+                if crate::plugin::guard("dispatch", || lp.plugin().dispatch(&mut host, cmd))
+                    .unwrap_or(false)
+                {
                     return true;
                 }
             }

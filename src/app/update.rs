@@ -414,6 +414,14 @@ impl OpenCADStudio {
                     }
                 }
 
+                // Surface any plugin-guard panic messages that piled up since
+                // the last tick (the host singleton isn't reachable from inside
+                // the plugin hooks, so they queue and we flush here). (#145)
+                #[cfg(not(target_arch = "wasm32"))]
+                for msg in crate::plugin::drain_errors() {
+                    self.command_line.push_error(&msg);
+                }
+
                 Task::none()
             }
 
