@@ -191,13 +191,18 @@ fn tessellate_sat_lods(
 /// document has no transform (treated as identity).
 pub(crate) fn body_transform(sat: &SatDocument) -> Option<([f64; 9], [f64; 3], f64)> {
     let t = sat.records.iter().find(|r| r.entity_type == "transform")?;
-    let mut m = [0.0f64; 9];
-    for (i, slot) in m.iter_mut().enumerate() {
-        *slot = t.token_float(i)?;
+    // The transform record's numeric payload is its first 13 float-valued
+    // tokens: 3×3 matrix, translation, scale. A leading book-keeping pointer
+    // (`$-1`) and the trailing rotate/reflect/shear flags aren't floats, so
+    // collecting float tokens skips them — reading by raw token index would
+    // be thrown off by the leading pointer.
+    let v: Vec<f64> = t.tokens.iter().filter_map(|tok| tok.as_float()).take(13).collect();
+    if v.len() < 13 {
+        return None;
     }
-    let tr = [t.token_float(9)?, t.token_float(10)?, t.token_float(11)?];
-    let scale = t.token_float(12).unwrap_or(1.0);
-    Some((m, tr, scale))
+    let m = [v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]];
+    let tr = [v[9], v[10], v[11]];
+    Some((m, tr, v[12]))
 }
 
 /// Apply a body placement transform to a mesh. ACIS treats points as row

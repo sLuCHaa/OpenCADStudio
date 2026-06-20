@@ -1,5 +1,5 @@
 use acadrust::entities::Insert;
-use acadrust::types::{Transform, Vector3};
+use acadrust::types::{Matrix3, Transform, Vector3};
 use acadrust::{EntityType, Handle};
 use glam::Vec3;
 
@@ -13,8 +13,10 @@ use crate::scene::convert::tessellate;
 use crate::scene::view::render;
 
 fn grips(ins: &Insert) -> Vec<GripDef> {
-    let p = glam::DVec3::new(ins.insert_point.x, ins.insert_point.y, ins.insert_point.z);
-    vec![square_grip(0, p)]
+    // `insert_point` is in the OCS defined by `normal`; the grip must sit at
+    // the world placement, so map it through the OCS. Identity for +Z.
+    let w = Matrix3::arbitrary_axis(ins.normal) * ins.insert_point;
+    vec![square_grip(0, glam::DVec3::new(w.x, w.y, w.z))]
 }
 
 fn properties(ins: &Insert) -> PropSection {
@@ -50,18 +52,18 @@ fn apply_geom_prop(ins: &mut Insert, field: &str, value: &str) {
 }
 
 fn apply_grip(ins: &mut Insert, _grip_id: usize, apply: GripApply) {
-    match apply {
-        GripApply::Absolute(p) => {
-            ins.insert_point.x = p.x as f64;
-            ins.insert_point.y = p.y as f64;
-            ins.insert_point.z = p.z as f64;
-        }
+    // The grip works in world space, but `insert_point` is stored in the OCS
+    // defined by `normal`. Round-trip through the OCS so dragging a block
+    // whose extrusion direction isn't +Z moves along world axes. Identity OCS
+    // for a +Z normal, so this matches the old direct assignment there.
+    let ocs = Matrix3::arbitrary_axis(ins.normal);
+    let world = match apply {
+        GripApply::Absolute(p) => Vector3::new(p.x as f64, p.y as f64, p.z as f64),
         GripApply::Translate(d) => {
-            ins.insert_point.x += d.x as f64;
-            ins.insert_point.y += d.y as f64;
-            ins.insert_point.z += d.z as f64;
+            ocs * ins.insert_point + Vector3::new(d.x as f64, d.y as f64, d.z as f64)
         }
-    }
+    };
+    ins.insert_point = ocs.transpose() * world;
 }
 
 fn apply_transform(ins: &mut Insert, t: &EntityTransform) {
