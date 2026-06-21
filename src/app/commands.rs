@@ -595,8 +595,21 @@ impl OpenCADStudio {
                     self.command_line.push_error("Clipboard is empty.");
                 } else {
                     let wires = self.tabs[i].scene.wires_for_entities(&self.clipboard);
+                    // The preview wires are tessellated in THIS drawing's
+                    // offset-relative frame, but the stored centroid is in the
+                    // source drawing's. Shift it by the world_offset difference
+                    // so the ghost tracks the cursor instead of drifting by the
+                    // offset gap. Zero within one drawing. (#135)
+                    let src_wo = self.clipboard_world_offset;
+                    let tgt_wo = self.tabs[i].scene.world_offset;
+                    let centroid = self.clipboard_centroid
+                        + glam::Vec3::new(
+                            (src_wo[0] - tgt_wo[0]) as f32,
+                            (src_wo[1] - tgt_wo[1]) as f32,
+                            (src_wo[2] - tgt_wo[2]) as f32,
+                        );
                     use crate::modules::draw::clipboard::paste::PasteCommand;
-                    let cmd = PasteCommand::new(wires, self.clipboard_centroid);
+                    let cmd = PasteCommand::new(wires, centroid);
                     self.command_line.push_info(&cmd.prompt());
                     self.tabs[i].active_cmd = Some(Box::new(cmd));
                 }
