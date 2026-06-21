@@ -2094,7 +2094,17 @@ impl Scene {
                 if !self.mesh_entity_visible(ins.common.handle) {
                     continue;
                 }
+                let start = out.len();
                 self.expand_block_meshes(&ins.block_name, &ins.get_transform(), 0, woff, &mut out);
+                // Tag the instanced meshes with the parent INSERT handle so the
+                // hover / selection highlight (keyed on the mesh name) tints the
+                // block, not the inner solid's own handle which nothing selects.
+                let name = ins.common.handle.value().to_string();
+                for set in &mut out[start..] {
+                    for m in &mut set.lods {
+                        m.name = name.clone();
+                    }
+                }
             }
         }
         out
