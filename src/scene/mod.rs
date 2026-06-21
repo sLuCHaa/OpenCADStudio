@@ -5470,10 +5470,16 @@ impl Scene {
             }
             if self.hatches.contains_key(&h) {
                 let existing_color = self.hatches[&h].color;
-                let new_model = if let Some(EntityType::Hatch(dxf)) = self.document.get_entity(h) {
-                    Self::hatch_model_from_dxf(dxf, existing_color, hatch_offset)
-                } else {
-                    None
+                let new_model = match self.document.get_entity(h) {
+                    Some(EntityType::Hatch(dxf)) => {
+                        Self::hatch_model_from_dxf(dxf, existing_color, hatch_offset)
+                    }
+                    // A DXF SOLID renders as a solid-fill hatch; rebuild it from
+                    // the moved corners so the fill follows the transform.
+                    Some(EntityType::Solid(s)) => {
+                        Some(Self::solid_hatch_model(s, existing_color, hatch_offset))
+                    }
+                    _ => None,
                 };
                 if let Some(model) = new_model {
                     self.hatches.insert(h, model);
@@ -5565,11 +5571,16 @@ impl Scene {
             entity.common_mut().handle = Handle::NULL;
             let h = self.document.add_entity(entity).unwrap_or(Handle::NULL);
             if !h.is_null() {
-                let new_model = if let Some(EntityType::Hatch(dxf)) = self.document.get_entity(h) {
-                    let color = convert::tess_util::aci_to_rgba(&dxf.common.color);
-                    Self::hatch_model_from_dxf(dxf, color, hatch_offset)
-                } else {
-                    None
+                let new_model = match self.document.get_entity(h) {
+                    Some(EntityType::Hatch(dxf)) => {
+                        let color = convert::tess_util::aci_to_rgba(&dxf.common.color);
+                        Self::hatch_model_from_dxf(dxf, color, hatch_offset)
+                    }
+                    Some(EntityType::Solid(s)) => {
+                        let color = convert::tess_util::aci_to_rgba(&s.common.color);
+                        Some(Self::solid_hatch_model(s, color, hatch_offset))
+                    }
+                    _ => None,
                 };
                 if let Some(model) = new_model {
                     self.hatches.insert(h, model);
