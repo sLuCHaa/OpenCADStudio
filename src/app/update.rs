@@ -560,6 +560,8 @@ impl OpenCADStudio {
 
                 self.tabs[i].current_path = Some(path.clone());
                 self.tabs[i].scene.document = doc;
+                // Follow the file's saved current UCS from the moment it opens.
+                self.tabs[i].adopt_active_ucs_from_header();
                 // Route shared CJK ideographs to the language matching this
                 // drawing's code page (web per-language font split). Drop the
                 // glyph cache if it changed so Han re-resolves to the new

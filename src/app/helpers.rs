@@ -42,54 +42,102 @@ pub(super) fn parse_coord(text: &str) -> Option<(glam::Vec3, CoordKind)> {
     }
 }
 
+// ── UCS ↔ WCS converter ─────────────────────────────────────────────────────
+
+/// The single bridge between WCS (how geometry and the file are stored) and the
+/// active UCS (the coordinate system the user works in). Build one from the
+/// tab's active UCS via [`DocumentTab::ucs_xform`](super::DocumentTab); the
+/// `None` UCS yields the identity (plain WCS).
+///
+/// Every system that has to speak UCS — the coordinate readout, typed input,
+/// the UCS icon, snap/ortho, the ViewCube — goes through this one type instead
+/// of re-deriving the axis math. Axes are orthonormal, so the inverse rotation
+/// is just the transpose (the dot products in `to_ucs`); no matrix inversion.
+#[derive(Clone, Copy)]
+pub(super) struct UcsXform {
+    origin: glam::Vec3,
+    x: glam::Vec3,
+    y: glam::Vec3,
+    z: glam::Vec3,
+}
+
+impl UcsXform {
+    /// Plain WCS — no active UCS.
+    pub(super) fn identity() -> Self {
+        Self {
+            origin: glam::Vec3::ZERO,
+            x: glam::Vec3::X,
+            y: glam::Vec3::Y,
+            z: glam::Vec3::Z,
+        }
+    }
+
+    pub(super) fn from_ucs(ucs: &Ucs) -> Self {
+        let v =
+            |a: acadrust::types::Vector3| glam::Vec3::new(a.x as f32, a.y as f32, a.z as f32);
+        let x = v(ucs.x_axis).normalize_or(glam::Vec3::X);
+        let y = v(ucs.y_axis).normalize_or(glam::Vec3::Y);
+        let z = x.cross(y).normalize_or(glam::Vec3::Z);
+        Self { origin: v(ucs.origin), x, y, z }
+    }
+
+    pub(super) fn from_active(ucs: Option<&Ucs>) -> Self {
+        ucs.map(Self::from_ucs).unwrap_or_else(Self::identity)
+    }
+
+    /// True when this is plain WCS — lets callers skip the conversion.
+    pub(super) fn is_identity(&self) -> bool {
+        self.origin == glam::Vec3::ZERO
+            && self.x == glam::Vec3::X
+            && self.y == glam::Vec3::Y
+            && self.z == glam::Vec3::Z
+    }
+
+    /// UCS point → WCS.
+    pub(super) fn to_wcs(&self, p: glam::Vec3) -> glam::Vec3 {
+        self.origin + self.x * p.x + self.y * p.y + self.z * p.z
+    }
+
+    /// WCS point → UCS.
+    pub(super) fn to_ucs(&self, p: glam::Vec3) -> glam::Vec3 {
+        let d = p - self.origin;
+        glam::Vec3::new(d.dot(self.x), d.dot(self.y), d.dot(self.z))
+    }
+
+    /// UCS direction → WCS (rotation only, no origin shift).
+    pub(super) fn vec_to_wcs(&self, v: glam::Vec3) -> glam::Vec3 {
+        self.x * v.x + self.y * v.y + self.z * v.z
+    }
+
+    /// WCS direction → UCS (rotation only, no origin shift).
+    #[allow(dead_code)]
+    pub(super) fn vec_to_ucs(&self, v: glam::Vec3) -> glam::Vec3 {
+        glam::Vec3::new(v.dot(self.x), v.dot(self.y), v.dot(self.z))
+    }
+
+    /// `(origin, x, y, z)` axes in WCS — for drawing the UCS icon.
+    pub(super) fn axes(&self) -> (glam::Vec3, glam::Vec3, glam::Vec3, glam::Vec3) {
+        (self.origin, self.x, self.y, self.z)
+    }
+}
+
+// ── UCS ↔ WCS transforms (thin wrappers over `UcsXform`) ────────────────────
+
 /// Rotate a UCS-local offset into WCS without applying the origin
 /// translation — used for relative coordinate entry, where only the
 /// axis orientation matters, not the UCS origin.
 pub(super) fn ucs_rotate_vec(offset: glam::Vec3, ucs: &Ucs) -> glam::Vec3 {
-    let x = glam::Vec3::new(ucs.x_axis.x as f32, ucs.x_axis.y as f32, ucs.x_axis.z as f32);
-    let y = glam::Vec3::new(ucs.y_axis.x as f32, ucs.y_axis.y as f32, ucs.y_axis.z as f32);
-    let z = ucs_z_axis(ucs);
-    x * offset.x + y * offset.y + z * offset.z
+    UcsXform::from_ucs(ucs).vec_to_wcs(offset)
 }
 
-// ── UCS ↔ WCS transforms ───────────────────────────────────────────────────
-
 /// Convert a point from UCS local coordinates to WCS.
-///
-/// WCS = origin + x_axis*u + y_axis*v + z_axis*w
 pub(super) fn ucs_to_wcs(pt: glam::Vec3, ucs: &Ucs) -> glam::Vec3 {
-    let o = glam::Vec3::new(
-        ucs.origin.x as f32,
-        ucs.origin.y as f32,
-        ucs.origin.z as f32,
-    );
-    let x = glam::Vec3::new(
-        ucs.x_axis.x as f32,
-        ucs.x_axis.y as f32,
-        ucs.x_axis.z as f32,
-    );
-    let y = glam::Vec3::new(
-        ucs.y_axis.x as f32,
-        ucs.y_axis.y as f32,
-        ucs.y_axis.z as f32,
-    );
-    let z_ax = ucs_z_axis(ucs);
-    o + x * pt.x + y * pt.y + z_ax * pt.z
+    UcsXform::from_ucs(ucs).to_wcs(pt)
 }
 
 /// Return the normalised Z axis of a UCS (cross product of X and Y axes).
 pub(super) fn ucs_z_axis(ucs: &Ucs) -> glam::Vec3 {
-    let x = glam::Vec3::new(
-        ucs.x_axis.x as f32,
-        ucs.x_axis.y as f32,
-        ucs.x_axis.z as f32,
-    );
-    let y = glam::Vec3::new(
-        ucs.y_axis.x as f32,
-        ucs.y_axis.y as f32,
-        ucs.y_axis.z as f32,
-    );
-    x.cross(y).normalize_or_zero()
+    UcsXform::from_ucs(ucs).axes().3
 }
 
 /// Build a UCS with `origin` and axes rotated by `angle_z_rad` around the Z axis.

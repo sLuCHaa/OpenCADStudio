@@ -93,6 +93,9 @@ pub struct UcsIconParams {
     pub view_proj: Mat4,
     /// Viewport bounds (used for NDC → pixel conversion).
     pub bounds: iced::Rectangle,
+    /// The active UCS axis directions in world space (X, Y, Z). Plain WCS is
+    /// `(Vec3::X, Vec3::Y, Vec3::Z)`; a UCS rotates the tripod to match.
+    pub axes: (Vec3, Vec3, Vec3),
 }
 
 // ── Selection overlay ───────────────────────────────────────────────────
@@ -789,7 +792,7 @@ impl canvas::Program<Message> for SelectionCanvas {
 
         // ── UCS icon ──────────────────────────────────────────────────────
         if let Some(ref ucs) = self.ucs_icon {
-            draw_ucs_icon(&mut frame, ucs.view_proj, ucs.bounds);
+            draw_ucs_icon(&mut frame, ucs.view_proj, ucs.bounds, ucs.axes);
         }
 
         // ── Object Snap Tracking lines ────────────────────────────────────
@@ -1021,7 +1024,12 @@ const UCS_ICON_MARGIN: f32 = 50.0;
 const UCS_ICON_LEN: f32 = 38.0; // longest axis arm in screen pixels
 const UCS_ICON_TIP: f32 = 7.0; // arrowhead size in pixels
 
-fn draw_ucs_icon(frame: &mut canvas::Frame, vp: Mat4, bounds: iced::Rectangle) {
+fn draw_ucs_icon(
+    frame: &mut canvas::Frame,
+    vp: Mat4,
+    bounds: iced::Rectangle,
+    axes: (Vec3, Vec3, Vec3),
+) {
     if bounds.width < 10.0 || bounds.height < 10.0 {
         return;
     }
@@ -1041,10 +1049,14 @@ fn draw_ucs_icon(frame: &mut canvas::Frame, vp: Mat4, bounds: iced::Rectangle) {
         )
     };
 
+    // Project the UCS axis directions (not fixed world axes) so the tripod
+    // rotates to the active UCS. Directions are translation-invariant, so a
+    // common origin is fine.
+    let (ax, ay, az) = axes;
     let Some(org) = w2ndc(Vec3::ZERO) else { return };
-    let Some(xn) = w2ndc(Vec3::X) else { return };
-    let Some(yn) = w2ndc(Vec3::Y) else { return };
-    let Some(zn) = w2ndc(Vec3::Z) else { return };
+    let Some(xn) = w2ndc(ax) else { return };
+    let Some(yn) = w2ndc(ay) else { return };
+    let Some(zn) = w2ndc(az) else { return };
 
     let org_s = ndc2s(org);
     let icon_origin = Point::new(

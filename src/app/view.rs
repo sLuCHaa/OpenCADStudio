@@ -154,9 +154,11 @@ impl OpenCADStudio {
 
             let ucs_icon = if self.show_ucs_icon && !is_paper {
                 let cam = tab.scene.camera.borrow();
+                let (_, ux, uy, uz) = tab.ucs_xform().axes();
                 Some(overlay::UcsIconParams {
                     view_proj: cam.view_proj(vp_bounds),
                     bounds: vp_bounds,
+                    axes: (ux, uy, uz),
                 })
             } else {
                 None
@@ -877,16 +879,19 @@ impl OpenCADStudio {
                         || tab.scene.has_selected_viewport();
                     // The cursor is tracked in local render space; re-add the
                     // model-space world offset so the readout shows true
-                    // drawing coordinates (paper space carries no offset).
+                    // drawing coordinates (paper space carries no offset), then
+                    // report it in the active UCS — the readout follows the
+                    // user's coordinate system, not raw WCS (no-op without UCS).
                     let cursor_coord = {
                         let lc = tab.last_cursor_world;
                         if is_model {
                             let wo = tab.scene.world_offset;
-                            glam::Vec3::new(
+                            let wcs = glam::Vec3::new(
                                 lc.x + wo[0] as f32,
                                 lc.y + wo[1] as f32,
                                 lc.z + wo[2] as f32,
-                            )
+                            );
+                            tab.ucs_xform().to_ucs(wcs)
                         } else {
                             lc
                         }

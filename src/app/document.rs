@@ -165,6 +165,29 @@ pub(super) struct DocumentTab {
 }
 
 impl DocumentTab {
+    /// The active WCS↔UCS converter for this tab — identity when no UCS is set.
+    /// Every consumer that needs UCS-relative coordinates goes through this.
+    pub(super) fn ucs_xform(&self) -> super::helpers::UcsXform {
+        super::helpers::UcsXform::from_active(self.active_ucs.as_ref())
+    }
+
+    /// Adopt the document's saved current UCS (the header's model-space UCS) as
+    /// the active UCS, so the coordinate readout / icon / input follow the
+    /// file's coordinate system the moment it opens. An identity UCS clears it
+    /// back to plain WCS. Call wherever a document is loaded into the tab.
+    pub(super) fn adopt_active_ucs_from_header(&mut self) {
+        let h = &self.scene.document.header;
+        let mut u = Ucs::new(h.model_space_ucs_name.clone());
+        u.origin = h.model_space_ucs_origin;
+        u.x_axis = h.model_space_ucs_x_axis;
+        u.y_axis = h.model_space_ucs_y_axis;
+        self.active_ucs = if super::helpers::UcsXform::from_ucs(&u).is_identity() {
+            None
+        } else {
+            Some(u)
+        };
+    }
+
     pub(super) fn new_drawing(n: usize) -> Self {
         let mut scene = Scene::new();
         linetypes::populate_document(&mut scene.document);

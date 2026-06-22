@@ -224,6 +224,7 @@ impl OpenCADStudio {
                     Ok(doc) => {
                         let i = self.active_tab;
                         self.tabs[i].scene.document = doc;
+                        self.tabs[i].adopt_active_ucs_from_header();
                         self.tabs[i].current_path = Some(PathBuf::from(path));
                         self.tabs[i].is_start = false;
                         self.tabs[i].scene.bump_geometry();
