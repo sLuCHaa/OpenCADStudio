@@ -2653,8 +2653,9 @@ impl OpenCADStudio {
 
                     if snap_hit.is_none() {
                         let base = grip.origin_world;
+                        let ucs_xf = self.tabs[i].ucs_xform();
                         if self.ortho_mode {
-                            snapped = ortho_constrain(snapped, base);
+                            snapped = ortho_constrain(snapped, base, &ucs_xf);
                         } else if self.polar_mode {
                             snapped = polar_constrain_near(
                                 snapped,
@@ -2663,6 +2664,7 @@ impl OpenCADStudio {
                                 vp_mat,
                                 bounds,
                                 self.snapper.osnap_radius_px,
+                                &ucs_xf,
                             );
                         }
                     }
@@ -2871,8 +2873,9 @@ impl OpenCADStudio {
                                 .is_some_and(|s| s.snap_type != crate::snap::SnapType::Grid);
                             if !osnap_locked {
                                 if let Some(base) = self.last_point {
+                                    let ucs_xf = self.tabs[i].ucs_xform();
                                     if self.ortho_mode {
-                                        pt = ortho_constrain(pt, base);
+                                        pt = ortho_constrain(pt, base, &ucs_xf);
                                     } else if self.polar_mode {
                                         pt = polar_constrain_near(
                                             pt,
@@ -2881,6 +2884,7 @@ impl OpenCADStudio {
                                             view_proj,
                                             bounds,
                                             self.snapper.osnap_radius_px,
+                                            &ucs_xf,
                                         );
                                     }
                                 }
@@ -3477,8 +3481,9 @@ impl OpenCADStudio {
                             // Object snap wins over ortho/polar — a snapped point
                             // commits as-is. Grid snap still combines. (#132)
                             if let Some(base) = self.last_point {
+                                let ucs_xf = self.tabs[i].ucs_xform();
                                 if self.ortho_mode {
-                                    pt = ortho_constrain(pt, base);
+                                    pt = ortho_constrain(pt, base, &ucs_xf);
                                 } else if self.polar_mode {
                                     pt = polar_constrain_near(
                                         pt,
@@ -3487,6 +3492,7 @@ impl OpenCADStudio {
                                         vp_mat,
                                         bounds,
                                         self.snapper.osnap_radius_px,
+                                        &ucs_xf,
                                     );
                                 }
                             }

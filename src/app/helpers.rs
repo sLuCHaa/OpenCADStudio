@@ -169,21 +169,34 @@ pub(super) fn grid_plane_from_camera(pitch: f32, yaw: f32) -> GridPlane {
 
 // ── Drawing constraint helpers ─────────────────────────────────────────────
 
-/// Constrain `pt` to the nearest 90° direction from `base` (XY plane, Z-up).
-pub(super) fn ortho_constrain(pt: glam::Vec3, base: glam::Vec3) -> glam::Vec3 {
-    let dx = (pt.x - base.x).abs();
-    let dy = (pt.y - base.y).abs();
-    if dx >= dy {
-        glam::Vec3::new(pt.x, base.y, pt.z)
+/// Constrain `pt` to the nearest 90° direction from `base`, in the active UCS
+/// plane — ortho follows the user's coordinate system, not world axes. `xf` is
+/// identity for plain WCS, so the world-XY behaviour is unchanged there.
+pub(super) fn ortho_constrain(pt: glam::Vec3, base: glam::Vec3, xf: &UcsXform) -> glam::Vec3 {
+    let p = xf.to_ucs(pt);
+    let b = xf.to_ucs(base);
+    let dx = (p.x - b.x).abs();
+    let dy = (p.y - b.y).abs();
+    let c = if dx >= dy {
+        glam::Vec3::new(p.x, b.y, p.z)
     } else {
-        glam::Vec3::new(base.x, pt.y, pt.z)
-    }
+        glam::Vec3::new(b.x, p.y, p.z)
+    };
+    xf.to_wcs(c)
 }
 
-/// Constrain `pt` to the nearest polar angle multiple from `base` (XY plane, Z-up).
-pub(super) fn polar_constrain(pt: glam::Vec3, base: glam::Vec3, step_deg: f32) -> glam::Vec3 {
-    let dx = pt.x - base.x;
-    let dy = pt.y - base.y;
+/// Constrain `pt` to the nearest polar angle multiple from `base`, measured in
+/// the active UCS plane (identity `xf` = world XY, Z-up).
+pub(super) fn polar_constrain(
+    pt: glam::Vec3,
+    base: glam::Vec3,
+    step_deg: f32,
+    xf: &UcsXform,
+) -> glam::Vec3 {
+    let p = xf.to_ucs(pt);
+    let b = xf.to_ucs(base);
+    let dx = p.x - b.x;
+    let dy = p.y - b.y;
     let dist = (dx * dx + dy * dy).sqrt();
     if dist < 1e-6 {
         return pt;
@@ -191,11 +204,11 @@ pub(super) fn polar_constrain(pt: glam::Vec3, base: glam::Vec3, step_deg: f32) -
     let step = step_deg.to_radians();
     let angle = dy.atan2(dx);
     let snapped = (angle / step).round() * step;
-    glam::Vec3::new(
-        base.x + dist * snapped.cos(),
-        base.y + dist * snapped.sin(),
-        pt.z,
-    )
+    xf.to_wcs(glam::Vec3::new(
+        b.x + dist * snapped.cos(),
+        b.y + dist * snapped.sin(),
+        p.z,
+    ))
 }
 
 /// Polar constraint that only engages when the cursor is within `tol_px`
@@ -208,8 +221,9 @@ pub(super) fn polar_constrain_near(
     view_proj: glam::Mat4,
     bounds: iced::Rectangle,
     tol_px: f32,
+    xf: &UcsXform,
 ) -> glam::Vec3 {
-    let snapped = polar_constrain(pt, base, step_deg);
+    let snapped = polar_constrain(pt, base, step_deg, xf);
     let to_screen = |w: glam::Vec3| {
         let ndc = view_proj.project_point3(w);
         (
