@@ -6131,7 +6131,13 @@ impl Scene {
         } else {
             vd.x.atan2(-vd.y)
         };
-        let rotation = view::camera::yaw_pitch_to_quat(yaw, pitch, 0.0);
+        // The saved view can carry a twist (rotation about the view axis), set
+        // when the view was aligned to a rotated UCS. The twist is the angle
+        // that rotates world-X onto screen-right, so the world direction that
+        // ends up horizontal is its negative; feed that in as the camera roll
+        // so the drawing opens square, the way it was saved, instead of in raw
+        // world orientation (which looks tilted).
+        let rotation = view::camera::yaw_pitch_to_quat(yaw, pitch, -vp.view_twist as f32);
         let view_right = rotation * glam::Vec3::X;
         let view_up = rotation * glam::Vec3::Y;
         // view_target is WCS; wire-space subtracts world_offset.
