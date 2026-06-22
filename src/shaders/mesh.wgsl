@@ -10,15 +10,20 @@
 //     flat shade (FlatShaded).
 
 struct Uniforms {
-    view_proj:        mat4x4<f32>,
-    camera_pos:       vec4<f32>,
-    viewport_size:    vec2<f32>,
-    world_per_pixel:  f32,
-    lwdisplay_enable: f32,
-    flat_shade:       f32,
-    _pad0:            f32,
-    _pad1:            f32,
-    _pad2:            f32,
+    view_proj:           mat4x4<f32>,
+    camera_pos:          vec4<f32>,
+    viewport_size:       vec2<f32>,
+    world_per_pixel:     f32,
+    lwdisplay_enable:    f32,
+    flat_shade:          f32,
+    transparency_enable: f32,
+    _pad:                vec2<f32>,
+    // Relative-to-eye (double-single): see wire.wgsl.
+    view_rot:            mat4x4<f32>,
+    eye_high:            vec3<f32>,
+    _pad_eh:             f32,
+    eye_low:             vec3<f32>,
+    _pad_el:             f32,
 };
 
 @group(0) @binding(0)
@@ -40,7 +45,7 @@ struct VertexOut {
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
     var out: VertexOut;
-    out.clip_pos  = u.view_proj * vec4<f32>(v.position, 1.0);
+    out.clip_pos  = u.view_rot * vec4<f32>((v.position - u.eye_high) - u.eye_low, 1.0);
     out.color     = v.color;
     out.normal    = v.normal;
     out.world_pos = v.position;

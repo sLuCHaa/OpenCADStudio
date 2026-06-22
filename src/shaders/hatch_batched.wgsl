@@ -18,11 +18,20 @@
 // ── Group 0: shared frame uniforms (matches hatch.wgsl) ──────────────────
 
 struct Uniforms {
-    view_proj:       mat4x4<f32>,
-    camera_pos:      vec4<f32>,
-    viewport_size:   vec2<f32>,
-    world_per_pixel: f32,
-    _pad:            f32,
+    view_proj:           mat4x4<f32>,
+    camera_pos:          vec4<f32>,
+    viewport_size:       vec2<f32>,
+    world_per_pixel:     f32,
+    lwdisplay_enable:    f32,
+    flat_shade:          f32,
+    transparency_enable: f32,
+    _pad:                vec2<f32>,
+    // Relative-to-eye (double-single): see wire.wgsl.
+    view_rot:            mat4x4<f32>,
+    eye_high:            vec3<f32>,
+    _pad_eh:             f32,
+    eye_low:             vec3<f32>,
+    _pad_el:             f32,
 }
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -126,7 +135,7 @@ fn corner_xy(c: u32, aabb: vec4<f32>) -> vec2<f32> {
     let world = vec3<f32>(local.x + inst.world_origin.x,
                           local.y + inst.world_origin.y,
                           0.0);
-    o.clip = u.view_proj * vec4<f32>(world, 1.0);
+    o.clip = u.view_rot * vec4<f32>((world - u.eye_high) - u.eye_low, 1.0);
     o.clip.z = o.clip.z - inst.draw_depth * DRAW_ORDER_BIAS * o.clip.w;
     o.xz = local;
     o.instance_index = v.instance_index;

@@ -13,11 +13,20 @@
 // ── Group 0: frame uniforms (shared) ──────────────────────────────────────
 
 struct Uniforms {
-    view_proj:       mat4x4<f32>,
-    camera_pos:      vec4<f32>,
-    viewport_size:   vec2<f32>,
-    world_per_pixel: f32,
-    _pad:            f32,
+    view_proj:           mat4x4<f32>,
+    camera_pos:          vec4<f32>,
+    viewport_size:       vec2<f32>,
+    world_per_pixel:     f32,
+    lwdisplay_enable:    f32,
+    flat_shade:          f32,
+    transparency_enable: f32,
+    _pad:                vec2<f32>,
+    // Relative-to-eye (double-single): see wire.wgsl.
+    view_rot:            mat4x4<f32>,
+    eye_high:            vec3<f32>,
+    _pad_eh:             f32,
+    eye_low:             vec3<f32>,
+    _pad_el:             f32,
 }
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -96,7 +105,7 @@ struct VOut {
     // fragment shader stays at full f32 precision so the in_polygon /
     // pattern math doesn't catastrophically cancel.
     let world = vec3<f32>(v.pos.x + h.origin.x, v.pos.y + h.origin.y, v.pos.z);
-    o.clip = u.view_proj * vec4<f32>(world, 1.0);
+    o.clip = u.view_rot * vec4<f32>((world - u.eye_high) - u.eye_low, 1.0);
     o.xz   = vec2<f32>(v.pos.x, v.pos.y);
     return o;
 }

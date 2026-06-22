@@ -5,9 +5,20 @@
 //   color     [f32; 4]   offset 12   16 B
 
 struct Uniforms {
-    view_proj: mat4x4<f32>,
-    viewport:  vec2<f32>,
-    _pad:      vec2<f32>,
+    view_proj:           mat4x4<f32>,
+    camera_pos:          vec4<f32>,
+    viewport_size:       vec2<f32>,
+    world_per_pixel:     f32,
+    lwdisplay_enable:    f32,
+    flat_shade:          f32,
+    transparency_enable: f32,
+    _pad:                vec2<f32>,
+    // Relative-to-eye (double-single): see wire.wgsl.
+    view_rot:            mat4x4<f32>,
+    eye_high:            vec3<f32>,
+    _pad_eh:             f32,
+    eye_low:             vec3<f32>,
+    _pad_el:             f32,
 };
 
 @group(0) @binding(0)
@@ -31,7 +42,7 @@ const DRAW_ORDER_BIAS: f32 = 0.001;
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
     var out: VertexOut;
-    out.clip_pos = u.view_proj * vec4<f32>(v.position, 1.0);
+    out.clip_pos = u.view_rot * vec4<f32>((v.position - u.eye_high) - u.eye_low, 1.0);
     out.clip_pos.z = out.clip_pos.z - v.draw_depth * DRAW_ORDER_BIAS * out.clip_pos.w;
     out.color    = v.color;
     return out;
