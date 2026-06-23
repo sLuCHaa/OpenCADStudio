@@ -3281,8 +3281,8 @@ impl OpenCADStudio {
                                 bounds,
                             )
                         } else {
-                            let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
-                            find_hit_grip(p, &self.tabs[i].selected_grips, vp_mat, bounds)
+                            let cam = self.tabs[i].scene.camera.borrow();
+                            find_hit_grip(p, &self.tabs[i].selected_grips, &cam, bounds)
                         };
                         if let Some((grip_id, is_translate, world)) = grip_hit {
                             // The visibility (lookup) grip opens a state
@@ -8275,8 +8275,8 @@ impl OpenCADStudio {
                 bounds,
             )
         } else {
-            let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
-            find_hit_grip(p, &self.tabs[i].selected_grips, vp_mat, bounds)
+            let cam = self.tabs[i].scene.camera.borrow();
+            find_hit_grip(p, &self.tabs[i].selected_grips, &cam, bounds)
         };
         match hit {
             Some((grip_id, _, _)) => {

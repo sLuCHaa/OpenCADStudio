@@ -98,8 +98,8 @@ impl OpenCADStudio {
                         drop(cam);
                         grips_to_screen_paper(&tab.selected_grips, tx, ty, half_w, half_h, bounds)
                     } else {
-                        let vp_mat = tab.scene.camera.borrow().view_proj(bounds);
-                        grips_to_screen(&tab.selected_grips, vp_mat, bounds)
+                        let cam = tab.scene.camera.borrow();
+                        grips_to_screen(&tab.selected_grips, &cam, bounds)
                     };
                     screen_grips
                         .into_iter()
@@ -140,17 +140,11 @@ impl OpenCADStudio {
             // enumeration for both, shared with the renderer.
             // Align the model grid to the active UCS (origin in wire space, world
             // axis directions); paper space stays plain WCS.
-            let (grid_origin, grid_axes) = if is_paper {
-                (glam::Vec3::ZERO, (glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z))
+            let (grid_origin, grid_axes): (glam::DVec3, _) = if is_paper {
+                (glam::DVec3::ZERO, (glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z))
             } else {
                 let (o, ux, uy, uz) = tab.ucs_xform().axes();
-                let wo = [0.0_f64; 3];
-                let o_wire = glam::Vec3::new(
-                    o.x - wo[0] as f32,
-                    o.y - wo[1] as f32,
-                    o.z - wo[2] as f32,
-                );
-                (o_wire, (ux, uy, uz))
+                (o.as_dvec3(), (ux, uy, uz))
             };
             let grid: Vec<overlay::GridParams> = tab
                 .scene
@@ -159,7 +153,8 @@ impl OpenCADStudio {
                 .map(|(bounds, cam)| {
                     let plane = grid_plane_from_camera(cam.pitch, cam.yaw);
                     overlay::GridParams {
-                        view_proj: cam.view_proj(bounds),
+                        view_rot: cam.view_proj_rte(bounds),
+                        eye: cam.eye_f64(),
                         bounds,
                         plane,
                         origin: grid_origin,

@@ -1,7 +1,7 @@
 //! OpenCADStudio-style grip editing.
 
 use acadrust::Handle;
-use glam::{Mat4, Vec3};
+use glam::Vec3;
 use iced::{Point, Rectangle};
 
 use crate::scene::model::object::{GripDef, GripShape};
@@ -34,17 +34,19 @@ pub struct GripEdit {
 /// Returns `(grip_id, screen_pos, is_midpoint, shape)` for each grip.
 pub fn grips_to_screen(
     grips: &[GripDef],
-    view_proj: Mat4,
+    camera: &crate::scene::view::camera::Camera,
     bounds: Rectangle,
 ) -> Vec<(usize, Point, bool, GripShape, Option<[f32; 2]>)> {
     grips
         .iter()
         .map(|g| {
-            let ndc = view_proj.project_point3(g.world.as_vec3());
-            let screen = Point::new(
-                bounds.x + (ndc.x + 1.0) * 0.5 * bounds.width,
-                bounds.y + (1.0 - ndc.y) * 0.5 * bounds.height,
-            );
+            // Project from the f64 grip position via the relative-to-eye path so
+            // the grip stays glued to the wire at UTM-scale coordinates (an
+            // `as_vec3` cast first would quantize it ~0.5 m off at high zoom).
+            let screen = match camera.project_f64(g.world, bounds) {
+                Some(p) => Point::new(bounds.x + p.x, bounds.y + p.y),
+                None => Point::new(f32::NAN, f32::NAN),
+            };
             (g.id, screen, g.is_midpoint, g.shape, g.dir)
         })
         .collect()
@@ -106,18 +108,17 @@ pub fn find_hit_grip_paper(
 pub fn find_hit_grip(
     cursor: Point,
     grips: &[GripDef],
-    view_proj: Mat4,
+    camera: &crate::scene::view::camera::Camera,
     bounds: Rectangle,
 ) -> Option<(usize, bool, Vec3)> {
     let mut best_dist = GRIP_THRESHOLD_PX;
     let mut best: Option<(usize, bool, Vec3)> = None;
 
     for g in grips {
-        let ndc = view_proj.project_point3(g.world.as_vec3());
-        let screen = Point::new(
-            (ndc.x + 1.0) * 0.5 * bounds.width,
-            (1.0 - ndc.y) * 0.5 * bounds.height,
-        );
+        let Some(screen) = camera.project_f64(g.world, bounds) else {
+            continue;
+        };
+        let screen = Point::new(screen.x, screen.y);
         let dx = screen.x - cursor.x;
         let dy = screen.y - cursor.y;
         let d = (dx * dx + dy * dy).sqrt();

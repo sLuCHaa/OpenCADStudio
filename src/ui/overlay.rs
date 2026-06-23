@@ -48,13 +48,18 @@ pub enum GridPlane {
 /// Passed to the canvas when the GRID display is active.
 #[derive(Clone)]
 pub struct GridParams {
-    pub view_proj: Mat4,
+    /// Rotation-only view-projection (Camera::view_proj_rte). Grid points are
+    /// made relative to `eye` in f64 before projecting, so the grid stays
+    /// precise / jitter-free at UTM-scale absolute coordinates.
+    pub view_rot: Mat4,
+    /// Camera eye in absolute world f64 — subtracted from each grid point.
+    pub eye: glam::DVec3,
     pub bounds: iced::Rectangle,
     pub plane: GridPlane,
-    /// Grid origin in render (wire) space and the active UCS axis directions.
+    /// Grid origin in absolute world f64 and the active UCS axis directions.
     /// The grid rules along these instead of world X/Y/Z, so it aligns to the
     /// user's coordinate system. Plain WCS passes `(ZERO, X, Y, Z)`.
-    pub origin: Vec3,
+    pub origin: glam::DVec3,
     pub axes: (Vec3, Vec3, Vec3),
 }
 
@@ -314,7 +319,7 @@ impl canvas::Program<Message> for SelectionCanvas {
             // Project with the full viewport rect `gb` so the grid stays aligned;
             // only the clip is clamped.
             frame.with_clip(clip, |f| {
-                draw_grid(f, g.view_proj, g.plane, gb, g.origin, g.axes)
+                draw_grid(f, g.view_rot, g.eye, g.plane, gb, g.origin, g.axes)
             });
         }
 
@@ -864,17 +869,18 @@ const MIN_GRID_PX: f32 = 20.0;
 
 fn draw_grid(
     frame: &mut canvas::Frame,
-    vp: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     plane: GridPlane,
     bounds: iced::Rectangle,
-    grid_origin: Vec3,
+    grid_origin: glam::DVec3,
     grid_axes: (Vec3, Vec3, Vec3),
 ) {
-    // World → canvas screen: include bounds origin so the grid lands in the
-    // active tile's rectangle (the screen → world unproject below stays
-    // tile-local, which is what feeds the visible-extent computation).
-    let w2s = |world: Vec3| -> Point {
-        let ndc = vp.project_point3(world);
+    // World → canvas screen via relative-to-eye: subtract the f64 eye first so
+    // grid points near the camera stay precise at UTM-scale absolute coords.
+    let w2s = |world: glam::DVec3| -> Point {
+        let rel = (world - eye).as_vec3();
+        let ndc = view_rot.project_point3(rel);
         Point::new(
             bounds.x + (ndc.x + 1.0) * 0.5 * bounds.width,
             bounds.y + (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -893,8 +899,8 @@ fn draw_grid(
     // Adaptive spacing: measure pixels per 1-unit step along each axis,
     // then find the smallest power-of-5 multiple that gives ≥ MIN_GRID_PX.
     let o = w2s(grid_origin);
-    let a1s = w2s(grid_origin + axis1);
-    let a2s = w2s(grid_origin + axis2);
+    let a1s = w2s(grid_origin + axis1.as_dvec3());
+    let a2s = w2s(grid_origin + axis2.as_dvec3());
     let px1 = ((a1s.x - o.x).powi(2) + (a1s.y - o.y).powi(2)).sqrt();
     let px2 = ((a2s.x - o.x).powi(2) + (a2s.y - o.y).powi(2)).sqrt();
     let px_per_unit = px1.max(px2);
@@ -912,11 +918,12 @@ fn draw_grid(
 
     // Visible world extent: unproject screen corners (mid-depth approximation)
     // and project them onto the grid axes.
-    let inv = vp.inverse();
-    let unproject = |sx: f32, sy: f32| -> Vec3 {
+    let inv = view_rot.inverse();
+    let unproject = |sx: f32, sy: f32| -> glam::DVec3 {
         let ndc_x = (sx / bounds.width) * 2.0 - 1.0;
         let ndc_y = 1.0 - (sy / bounds.height) * 2.0;
-        inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.5))
+        // Unproject in eye-relative space, then add the f64 eye back.
+        eye + inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.5)).as_dvec3()
     };
     let corners = [
         unproject(0.0, 0.0),
@@ -925,7 +932,10 @@ fn draw_grid(
         unproject(bounds.width, bounds.height),
     ];
     let range = |ax: Vec3| -> (f32, f32) {
-        let vals: Vec<f32> = corners.iter().map(|p| (*p - grid_origin).dot(ax)).collect();
+        let vals: Vec<f32> = corners
+            .iter()
+            .map(|p| (*p - grid_origin).as_vec3().dot(ax))
+            .collect();
         (
             vals.iter().cloned().fold(f32::INFINITY, f32::min),
             vals.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
@@ -957,8 +967,8 @@ fn draw_grid(
     // Lines parallel to axis2 (varying axis1 position)
     for i in n1_s..=n1_e {
         let v = i as f32 * s;
-        let p0 = w2s(grid_origin + axis1 * v + axis2 * (min2 - s));
-        let p1 = w2s(grid_origin + axis1 * v + axis2 * (max2 + s));
+        let p0 = w2s(grid_origin + (axis1 * v + axis2 * (min2 - s)).as_dvec3());
+        let p1 = w2s(grid_origin + (axis1 * v + axis2 * (max2 + s)).as_dvec3());
         frame.stroke(
             &canvas::Path::new(|b| {
                 b.move_to(p0);
@@ -970,8 +980,8 @@ fn draw_grid(
     // Lines parallel to axis1 (varying axis2 position)
     for i in n2_s..=n2_e {
         let v = i as f32 * s;
-        let p0 = w2s(grid_origin + axis2 * v + axis1 * (min1 - s));
-        let p1 = w2s(grid_origin + axis2 * v + axis1 * (max1 + s));
+        let p0 = w2s(grid_origin + (axis2 * v + axis1 * (min1 - s)).as_dvec3());
+        let p1 = w2s(grid_origin + (axis2 * v + axis1 * (max1 + s)).as_dvec3());
         frame.stroke(
             &canvas::Path::new(|b| {
                 b.move_to(p0);
@@ -983,21 +993,22 @@ fn draw_grid(
 
     // Coloured axes drawn on top of the grid lines, along the same UCS basis.
     let extent = (min1.abs().max(max1.abs()).max(min2.abs()).max(max2.abs()) + s) * 1.5;
-    draw_axes(frame, vp, bounds, extent.max(10.0), grid_origin, grid_axes);
+    draw_axes(frame, view_rot, eye, bounds, extent.max(10.0), grid_origin, grid_axes);
 }
 
 // ── Coloured UCS axes ──────────────────────────────────────────────────────
 
 fn draw_axes(
     frame: &mut canvas::Frame,
-    vp: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: iced::Rectangle,
     extent: f32,
-    origin: Vec3,
+    origin: glam::DVec3,
     axes: (Vec3, Vec3, Vec3),
 ) {
-    let w2s = |world: Vec3| -> Point {
-        let ndc = vp.project_point3(world);
+    let w2s = |world: glam::DVec3| -> Point {
+        let ndc = view_rot.project_point3((world - eye).as_vec3());
         Point::new(
             bounds.x + (ndc.x + 1.0) * 0.5 * bounds.width,
             bounds.y + (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -1014,8 +1025,8 @@ fn draw_axes(
     let mut line = |dir: Vec3, r: f32, g: f32, b: f32| {
         frame.stroke(
             &canvas::Path::new(|p| {
-                p.move_to(w2s(origin - dir * e));
-                p.line_to(w2s(origin + dir * e));
+                p.move_to(w2s(origin - (dir * e).as_dvec3()));
+                p.line_to(w2s(origin + (dir * e).as_dvec3()));
             }),
             axis_stroke(r, g, b),
         );
