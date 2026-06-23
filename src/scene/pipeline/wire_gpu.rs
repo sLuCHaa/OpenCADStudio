@@ -9,18 +9,21 @@
 // WireModel, separated by [NaN, NaN, NaN] points. Segments where either
 // endpoint contains NaN are silently skipped during emission.
 //
-// Instance layout (76 bytes, stride = 76, step_mode = Instance):
-//   pos_a          [f32; 3]   offset  0   12 B  — segment start (world)
-//   pos_b          [f32; 3]   offset 12   12 B  — segment end   (world)
-//   color          [u8;  4]   offset 24    4 B  — RGBA, Unorm8x4 → vec4<f32> in shader
-//   distance_a     f32        offset 28    4 B  — arc-length at endpoint A
-//   distance_b     f32        offset 32    4 B  — arc-length at endpoint B
-//   half_width     f32        offset 36    4 B  — half line width in pixels
-//   pattern_length f32        offset 40    4 B  — dash pattern total length
-//   pat0           [f32; 4]   offset 44   16 B  — pattern elements 0-3
-//   pat1           [f32; 4]   offset 60   16 B  — pattern elements 4-7
-//                                          ------
-//                                           76 B / instance
+// Instance layout (step_mode = Instance):
+//   pos_a          [f32; 3]   — segment start (high half, world / offset-relative)
+//   pos_a_low      [f32; 3]   — segment start low residual (double-single pair)
+//   pos_b          [f32; 3]   — segment end (high)
+//   pos_b_low      [f32; 3]   — segment end low residual
+//   color          [u8;  4]   — RGBA, Unorm8x4 → vec4<f32> in shader
+//   distance_a     f32        — arc-length at endpoint A
+//   distance_b     f32        — arc-length at endpoint B
+//   half_width     f32        — half line width in pixels
+//   pattern_length f32        — dash pattern total length
+//   pat0           [f32; 4]   — pattern elements 0-3
+//   pat1           [f32; 4]   — pattern elements 4-7
+//   draw_depth     f32        — normalized draw-order depth bias
+// The high+low pair encodes the f64 source so the relative-to-eye shader
+// stays precise at UTM-scale coordinates and after a cross-drawing paste.
 
 use crate::scene::model::wire_model::WireModel;
 use iced::wgpu;
@@ -61,7 +64,9 @@ fn instance_buffer_mapped(
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct WireInstance {
     pub pos_a: [f32; 3],
+    pub pos_a_low: [f32; 3],
     pub pos_b: [f32; 3],
+    pub pos_b_low: [f32; 3],
     /// RGBA packed as `Unorm8x4` — the vertex shader receives a `vec4<f32>`
     /// in [0, 1] after the GPU does the conversion. 8 bits per channel is
     /// indistinguishable from f32 at 8-bit display output.
@@ -79,61 +84,27 @@ pub struct WireInstance {
 
 impl WireInstance {
     pub fn layout<'a>() -> wgpu::VertexBufferLayout<'a> {
+        // Offsets come from the struct layout (must match the shader location
+        // indices in wire.wgsl). The low residuals are appended at locations
+        // 10/11 so the existing 0-9 stay stable.
+        const ATTRS: &[wgpu::VertexAttribute] = &[
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pos_a) as u64,          shader_location: 0,  format: wgpu::VertexFormat::Float32x3 },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pos_b) as u64,          shader_location: 1,  format: wgpu::VertexFormat::Float32x3 },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, color) as u64,          shader_location: 2,  format: wgpu::VertexFormat::Unorm8x4  },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, distance_a) as u64,     shader_location: 3,  format: wgpu::VertexFormat::Float32   },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, distance_b) as u64,     shader_location: 4,  format: wgpu::VertexFormat::Float32   },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, half_width) as u64,     shader_location: 5,  format: wgpu::VertexFormat::Float32   },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pattern_length) as u64, shader_location: 6,  format: wgpu::VertexFormat::Float32   },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pat0) as u64,           shader_location: 7,  format: wgpu::VertexFormat::Float32x4 },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pat1) as u64,           shader_location: 8,  format: wgpu::VertexFormat::Float32x4 },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, draw_depth) as u64,     shader_location: 9,  format: wgpu::VertexFormat::Float32   },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pos_a_low) as u64,      shader_location: 10, format: wgpu::VertexFormat::Float32x3 },
+            wgpu::VertexAttribute { offset: std::mem::offset_of!(WireInstance, pos_b_low) as u64,      shader_location: 11, format: wgpu::VertexFormat::Float32x3 },
+        ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<WireInstance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                }, // pos_a
-                wgpu::VertexAttribute {
-                    offset: 12,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                }, // pos_b
-                wgpu::VertexAttribute {
-                    offset: 24,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Unorm8x4,
-                }, // color
-                wgpu::VertexAttribute {
-                    offset: 28,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32,
-                }, // distance_a
-                wgpu::VertexAttribute {
-                    offset: 32,
-                    shader_location: 4,
-                    format: wgpu::VertexFormat::Float32,
-                }, // distance_b
-                wgpu::VertexAttribute {
-                    offset: 36,
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32,
-                }, // half_width
-                wgpu::VertexAttribute {
-                    offset: 40,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32,
-                }, // pattern_length
-                wgpu::VertexAttribute {
-                    offset: 44,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                }, // pat0
-                wgpu::VertexAttribute {
-                    offset: 60,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                }, // pat1
-                wgpu::VertexAttribute {
-                    offset: 76,
-                    shader_location: 9,
-                    format: wgpu::VertexFormat::Float32,
-                }, // draw_depth
-            ],
+            attributes: ATTRS,
         }
     }
 }
@@ -236,6 +207,10 @@ fn emit_wire_instances(wire: &WireModel, color: [f32; 4], draw_depth: f32) -> Ve
         }
     }
 
+    // Low residual paired index-for-index with points; empty → all-zero
+    // (interactive / preview wires that don't need sub-f32 precision).
+    let low = |i: usize| -> [f32; 3] { wire.points_low.get(i).copied().unwrap_or([0.0; 3]) };
+
     let mut instances: Vec<WireInstance> = Vec::with_capacity(seg_count);
     for i in 0..seg_count {
         let a = wire.points[i];
@@ -251,7 +226,9 @@ fn emit_wire_instances(wire: &WireModel, color: [f32; 4], draw_depth: f32) -> Ve
         }
         instances.push(WireInstance {
             pos_a: a,
+            pos_a_low: low(i),
             pos_b: b,
+            pos_b_low: low(i + 1),
             color: color_u8,
             distance_a: dists[i],
             distance_b: dists[i + 1],

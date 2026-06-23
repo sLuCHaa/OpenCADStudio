@@ -24,6 +24,51 @@ use crate::scene::convert::truck_tess::{
 };
 use crate::scene::model::wire_model::{SnapHint, WireModel};
 
+/// Split an f64 offset-relative coordinate into the double-single (high, low)
+/// f32 pair the renderer consumes. `high + low ≈ value` to ~f64 precision; the
+/// RTE shader subtracts the eye's own high/low so vertices stay smooth even at
+/// coordinates where a plain f32 cast would quantize to half a metre.
+#[inline]
+fn split_ds(v: f64) -> (f32, f32) {
+    let h = v as f32;
+    let l = (v - h as f64) as f32;
+    (h, l)
+}
+
+#[inline]
+fn split_ds_xyz(x: f64, y: f64, z: f64) -> ([f32; 3], [f32; 3]) {
+    let (xh, xl) = split_ds(x);
+    let (yh, yl) = split_ds(y);
+    let (zh, zl) = split_ds(z);
+    ([xh, yh, zh], [xl, yl, zl])
+}
+
+/// Subtract `world_offset` from each f64 source point and split the residual
+/// into double-single (high, low) f32 buffers in one pass.
+fn offset_to_ds(
+    src: impl IntoIterator<Item = [f64; 3]>,
+    world_offset: [f64; 3],
+) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+    let [ox, oy, oz] = world_offset;
+    let it = src.into_iter();
+    let (lo, hi) = it.size_hint();
+    let cap = hi.unwrap_or(lo);
+    let mut high = Vec::with_capacity(cap);
+    let mut low = Vec::with_capacity(cap);
+    for [x, y, z] in it {
+        if x.is_nan() {
+            // Wire-model NaN-separator: keep both buffers index-paired.
+            high.push([f32::NAN; 3]);
+            low.push([0.0; 3]);
+            continue;
+        }
+        let (h, l) = split_ds_xyz(x - ox, y - oy, z - oz);
+        high.push(h);
+        low.push(l);
+    }
+    (high, low)
+}
+
 // ── Public entry points ────────────────────────────────────────────────────
 
 /// Tessellate one entity into a WireModel.
@@ -104,7 +149,8 @@ pub fn tessellate(
             // value mixes inline colours.
             TruckObject::Text(stroke_groups) => {
                 let [ox, oy, oz] = world_offset;
-                let elev = entity_z(entity) - oz as f32;
+                let entity_zf = entity_z(entity) as f64;
+                let elev_v = entity_zf - oz;
 
                 // anno_scale anchors at the first group's origin so multi-line
                 // MText lines spread apart correctly as they grow.
@@ -112,46 +158,56 @@ pub fn tessellate(
                     .first()
                     .map(|g| g.origin)
                     .unwrap_or([0.0, 0.0]);
-                let ref_lx = (ref_origin[0] - ox) as f32;
-                let ref_ly = (ref_origin[1] - oy) as f32;
+                let ref_lx_v = ref_origin[0] - ox;
+                let ref_ly_v = ref_origin[1] - oy;
 
                 // Selection forces a single uniform colour — never split.
                 let split_by_color = !selected;
 
-                // Bins: key = Some(rgb) or None (= inherit entity colour).
-                // Preserve insertion order so wire-emit ordering tracks the
-                // original glyph stream (useful for stable hit-test indexing).
-                let mut bins: Vec<(Option<[f32; 3]>, Vec<[f32; 3]>)> = Vec::new();
+                // Bins: key = Some(rgb), parallel high/low f32 buffers — the
+                // low buffer is index-for-index with high so the renderer's
+                // double-single RTE shader survives at UTM-scale anchors.
+                let mut bins: Vec<(Option<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 3]>)> = Vec::new();
                 let mut bin_first: Vec<bool> = Vec::new();
                 let find_or_make =
-                    |key: Option<[f32; 3]>, bins: &mut Vec<(Option<[f32; 3]>, Vec<[f32; 3]>)>, firsts: &mut Vec<bool>| -> usize {
-                        if let Some(i) = bins.iter().position(|(k, _)| *k == key) {
+                    |key: Option<[f32; 3]>, bins: &mut Vec<(Option<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 3]>)>, firsts: &mut Vec<bool>| -> usize {
+                        if let Some(i) = bins.iter().position(|(k, _, _)| *k == key) {
                             i
                         } else {
-                            bins.push((key, Vec::new()));
+                            bins.push((key, Vec::new(), Vec::new()));
                             firsts.push(true);
                             bins.len() - 1
                         }
                     };
 
+                let anno = anno_scale as f64;
                 for group in &stroke_groups {
-                    let lx = (group.origin[0] - ox) as f32;
-                    let ly = (group.origin[1] - oy) as f32;
-                    let slx = (lx - ref_lx) * anno_scale + ref_lx;
-                    let sly = (ly - ref_ly) * anno_scale + ref_ly;
+                    let lx_v = group.origin[0] - ox;
+                    let ly_v = group.origin[1] - oy;
+                    let slx_v = (lx_v - ref_lx_v) * anno + ref_lx_v;
+                    let sly_v = (ly_v - ref_ly_v) * anno + ref_ly_v;
                     let bin_key = if split_by_color { group.color } else { None };
                     let bi = find_or_make(bin_key, &mut bins, &mut bin_first);
-                    let pts = &mut bins[bi].1;
+                    let (_k, pts, pts_low) = {
+                        let b = &mut bins[bi];
+                        (&b.0, &mut b.1, &mut b.2)
+                    };
+                    let _ = _k;
                     for stroke in &group.strokes {
                         if stroke.len() < 2 {
                             continue;
                         }
                         if !bin_first[bi] && !pts.is_empty() {
                             pts.push([f32::NAN, f32::NAN, f32::NAN]);
+                            pts_low.push([0.0; 3]);
                         }
                         bin_first[bi] = false;
                         for &[x, y] in stroke {
-                            pts.push([x * anno_scale + slx, y * anno_scale + sly, elev]);
+                            let xv = x as f64 * anno + slx_v;
+                            let yv = y as f64 * anno + sly_v;
+                            let (h, l) = split_ds_xyz(xv, yv, elev_v);
+                            pts.push(h);
+                            pts_low.push(l);
                         }
                     }
                 }
@@ -188,7 +244,7 @@ pub fn tessellate(
 
                 let bin_count = bins.len();
                 let mut out: Vec<WireModel> = Vec::with_capacity(bin_count);
-                for (idx, (override_rgb, pts)) in bins.into_iter().enumerate() {
+                for (idx, (override_rgb, pts, pts_low)) in bins.into_iter().enumerate() {
                     let wire_color = match override_rgb {
                         Some([r, g, b]) => [r, g, b, color[3]],
                         None => color,
@@ -208,7 +264,7 @@ pub fn tessellate(
                     out.push(WireModel {
                         name: name.clone(),
                         points: pts,
-                        points_low: Vec::new(),
+                        points_low: pts_low,
                         color: wire_color,
                         selected,
                         pattern_length: 0.0,
@@ -231,7 +287,7 @@ pub fn tessellate(
             TruckObject::Point(v) => {
                 let result = tessellate_vertex(&v, world_offset);
                 match result {
-                    TruckTessResult::Point([x, y, z]) => {
+                    TruckTessResult::Point([x, y, z], [xl, yl, zl]) => {
                         let s = 0.1_f32;
                         let snap_pts = offset_snap_pts(te.snap_pts, world_offset);
                         let [ox, oy, oz] = world_offset;
@@ -250,7 +306,11 @@ pub fn tessellate(
                                 [x, y - s, z],
                                 [x, y + s, z],
                             ],
-                            points_low: Vec::new(),
+                            // All four cross points share the Point's residual
+                            // (the cross arms are tiny, < 0.1 m, so the low
+                            // component of the centre is also the right one
+                            // for the arm tips at f32 precision).
+                            points_low: vec![[xl, yl, zl]; 4],
                             color,
                             selected,
                             pattern_length: 0.0,
@@ -271,7 +331,9 @@ pub fn tessellate(
             }
 
             TruckObject::Curve(e) => {
-                if let TruckTessResult::Lines(points) = tessellate_edge(&e, world_offset) {
+                if let TruckTessResult::Lines(points, points_low) =
+                    tessellate_edge(&e, world_offset)
+                {
                     let [ox, oy, oz] = world_offset;
                     let snap_pts = offset_snap_pts(te.snap_pts, world_offset);
                     let key_vertices: Vec<[f32; 3]> = te
@@ -282,7 +344,7 @@ pub fn tessellate(
                     return vec![WireModel {
                         name,
                         points,
-                        points_low: Vec::new(),
+                        points_low,
                         color,
                         selected,
                         pattern_length,
@@ -301,7 +363,9 @@ pub fn tessellate(
             }
 
             TruckObject::Contour(w) => {
-                if let TruckTessResult::Lines(points) = tessellate_wire(&w, world_offset) {
+                if let TruckTessResult::Lines(points, points_low) =
+                    tessellate_wire(&w, world_offset)
+                {
                     let [ox, oy, oz] = world_offset;
                     let snap_pts = offset_snap_pts(te.snap_pts, world_offset);
                     let key_vertices: Vec<[f32; 3]> = te
@@ -312,7 +376,7 @@ pub fn tessellate(
                     return vec![WireModel {
                         name,
                         points,
-                        points_low: Vec::new(),
+                        points_low,
                         color,
                         selected,
                         pattern_length,
@@ -333,19 +397,12 @@ pub fn tessellate(
             TruckObject::Lines(points) => {
                 // Points are world-space f64 from entity converters (polyline,
                 // leader, mesh, solid2d, etc.). Subtract world_offset in f64
-                // before casting to f32 so drawings at large UTM-style
-                // coordinates keep sub-unit precision in the wire model.
+                // and split into double-single (high, low) f32 buffers — the
+                // GPU shader pairs them so drawings at large UTM-style
+                // coordinates keep sub-unit precision in the wire model and
+                // don't jitter on camera movement.
                 let [ox, oy, oz] = world_offset;
-                let local_pts: Vec<[f32; 3]> = points
-                    .into_iter()
-                    .map(|[x, y, z]| {
-                        if x.is_nan() {
-                            [f32::NAN, f32::NAN, f32::NAN]
-                        } else {
-                            [(x - ox) as f32, (y - oy) as f32, (z - oz) as f32]
-                        }
-                    })
-                    .collect();
+                let (local_pts, local_pts_low) = offset_to_ds(points, world_offset);
                 let snap_pts = offset_snap_pts(te.snap_pts, world_offset);
                 let key_vertices: Vec<[f32; 3]> = te
                     .key_vertices
@@ -360,7 +417,7 @@ pub fn tessellate(
                 return vec![WireModel {
                     name,
                     points: local_pts,
-                    points_low: Vec::new(),
+                    points_low: local_pts_low,
                     color,
                     selected,
                     pattern_length: 0.0,
@@ -379,16 +436,7 @@ pub fn tessellate(
 
             TruckObject::SegmentedLines(points) => {
                 let [ox, oy, oz] = world_offset;
-                let local_pts: Vec<[f32; 3]> = points
-                    .into_iter()
-                    .map(|[x, y, z]| {
-                        if x.is_nan() {
-                            [f32::NAN, f32::NAN, f32::NAN]
-                        } else {
-                            [(x - ox) as f32, (y - oy) as f32, (z - oz) as f32]
-                        }
-                    })
-                    .collect();
+                let (local_pts, local_pts_low) = offset_to_ds(points, world_offset);
                 let snap_pts = offset_snap_pts(te.snap_pts, world_offset);
                 let key_vertices: Vec<[f32; 3]> = te
                     .key_vertices
@@ -398,7 +446,7 @@ pub fn tessellate(
                 return vec![WireModel {
                     name,
                     points: local_pts,
-                    points_low: Vec::new(),
+                    points_low: local_pts_low,
                     color,
                     selected,
                     pattern_length,

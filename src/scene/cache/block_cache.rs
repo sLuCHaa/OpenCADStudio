@@ -35,6 +35,9 @@ const MIN_PIXEL_SIZE: f32 = 2.0;
 #[derive(Clone, Debug)]
 pub struct LocalWire {
     pub points: Vec<[f32; 3]>,
+    /// Low-bit residual paired with `points` so block-instance wires keep
+    /// sub-f32 precision once the renderer translates them to world space.
+    pub points_low: Vec<[f32; 3]>,
     pub key_vertices: Vec<[f32; 3]>,
     pub snap_pts: Vec<(glam::Vec3, SnapHint)>,
     pub tangent_geoms: Vec<TangentGeom>,
@@ -521,6 +524,7 @@ fn tessellate_sub_local(
 
     Some(LocalWire {
         points: wire.points,
+        points_low: wire.points_low,
         key_vertices: wire.key_vertices,
         snap_pts: wire.snap_pts,
         tangent_geoms: wire.tangent_geoms,
@@ -947,7 +951,11 @@ fn emit_text_baseline(
             && !entry.points.last().map(|p| p[0].is_nan()).unwrap_or(false);
         if needs_sep {
             entry.points.push([f32::NAN; 3]);
+            entry.points_low.push([0.0; 3]);
         }
+        // Greek-substitute lines come from the LOD hatch path; their
+        // positions already sit at the same magnitude as other batched
+        // points, so a zero low component matches the f32 cast `xf` did.
         for q in [p0, p1] {
             if q[0] < entry.min_x {
                 entry.min_x = q[0];
@@ -962,6 +970,7 @@ fn emit_text_baseline(
                 entry.max_y = q[1];
             }
             entry.points.push(q);
+            entry.points_low.push([0.0; 3]);
         }
     }
 }
@@ -1031,6 +1040,7 @@ struct BatchEntry {
     aci: u8,
     plinegen: bool,
     points: Vec<[f32; 3]>,
+    points_low: Vec<[f32; 3]>,
     snap_pts: Vec<(glam::Vec3, SnapHint)>,
     key_vertices: Vec<[f32; 3]>,
     tangent_geoms: Vec<TangentGeom>,
@@ -1106,7 +1116,7 @@ impl Batches {
                 WireModel {
                     name: name.to_string(),
                     points: b.points,
-                    points_low: Vec::new(),
+                    points_low: b.points_low,
                     color,
                     selected,
                     pattern_length: b.pattern_length,
@@ -1394,31 +1404,46 @@ fn emit_wire(
     if !lw.points.is_empty() {
         if needs_sep {
             entry.points.push([f32::NAN; 3]);
+            entry.points_low.push([0.0; 3]);
         }
-        for p in &lw.points {
+        // Iterate paired with the matching low residual so the GPU keeps
+        // sub-f32 precision once the INSERT transform lands the wire in
+        // world space at UTM-scale coordinates.
+        for (idx, p) in lw.points.iter().enumerate() {
             if p[0].is_nan() {
                 entry.points.push([f32::NAN; 3]);
+                entry.points_low.push([0.0; 3]);
                 continue;
             }
+            let pl = lw.points_low.get(idx).copied().unwrap_or([0.0; 3]);
+            // Reconstruct the f64 source from (high, low) before applying the
+            // insert transform — otherwise the low half is silently dropped.
             let v = accum_xform.apply(Vector3::new(
-                p[0] as f64 + lo_x,
-                p[1] as f64 + lo_y,
-                p[2] as f64 + lo_z,
+                p[0] as f64 + pl[0] as f64 + lo_x,
+                p[1] as f64 + pl[1] as f64 + lo_y,
+                p[2] as f64 + pl[2] as f64 + lo_z,
             ));
-            let q = [(v.x - ox) as f32, (v.y - oy) as f32, (v.z - oz) as f32];
-            if q[0] < entry.min_x {
-                entry.min_x = q[0];
+            let qx = (v.x - ox) as f32;
+            let qy = (v.y - oy) as f32;
+            let qz = (v.z - oz) as f32;
+            let qx_l = ((v.x - ox) - qx as f64) as f32;
+            let qy_l = ((v.y - oy) - qy as f64) as f32;
+            let qz_l = ((v.z - oz) - qz as f64) as f32;
+            let q = [qx, qy, qz];
+            if qx < entry.min_x {
+                entry.min_x = qx;
             }
-            if q[1] < entry.min_y {
-                entry.min_y = q[1];
+            if qy < entry.min_y {
+                entry.min_y = qy;
             }
-            if q[0] > entry.max_x {
-                entry.max_x = q[0];
+            if qx > entry.max_x {
+                entry.max_x = qx;
             }
-            if q[1] > entry.max_y {
-                entry.max_y = q[1];
+            if qy > entry.max_y {
+                entry.max_y = qy;
             }
             entry.points.push(q);
+            entry.points_low.push([qx_l, qy_l, qz_l]);
         }
     }
 

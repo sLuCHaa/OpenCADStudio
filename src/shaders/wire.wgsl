@@ -53,6 +53,9 @@ struct InstanceIn {
     @location(7) pat0:           vec4<f32>,
     @location(8) pat1:           vec4<f32>,
     @location(9) draw_depth:     f32,
+    // Double-single low residuals of the endpoints.
+    @location(10) pos_a_low:     vec3<f32>,
+    @location(11) pos_b_low:     vec3<f32>,
 }
 
 // Draw-order depth bias: shifts clip-space z so 2D entities of different
@@ -85,13 +88,14 @@ struct VertexOut {
     let which_end = which_end_arr[vid];
     let side      = side_arr[vid];
 
-    // Relative-to-eye: subtract the eye (high+low) from each endpoint, then
-    // transform by the rotation-only view-projection. (pos − eye_high) is exact
-    // in f32 when both are the same magnitude (Sterbenz), and eye_low corrects
-    // the eye's sub-f32 residual — so the position tracks the camera smoothly
-    // at large coordinates instead of snapping onto the f32 grid each frame.
-    let rel_a = (in.pos_a - u.eye_high) - u.eye_low;
-    let rel_b = (in.pos_b - u.eye_high) - u.eye_low;
+    // Double-single relative-to-eye: subtract the eye from each endpoint with
+    // both halves of the f64-emulating pair, then transform by the rotation-only
+    // view-projection. (pos_high − eye_high) is exact in f32 for same-magnitude
+    // operands (Sterbenz); adding (pos_low − eye_low) restores the residual both
+    // the vertex and the eye would otherwise lose — so geometry stays put at
+    // UTM-scale coordinates and after a cross-drawing paste, with no jitter.
+    let rel_a = (in.pos_a - u.eye_high) + (in.pos_a_low - u.eye_low);
+    let rel_b = (in.pos_b - u.eye_high) + (in.pos_b_low - u.eye_low);
     let clip_a = u.view_rot * vec4<f32>(rel_a, 1.0);
     let clip_b = u.view_rot * vec4<f32>(rel_b, 1.0);
 

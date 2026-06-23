@@ -72,10 +72,12 @@ pub(crate) fn active_curve_tol() -> Option<f64> {
 /// Output of any truck topology tessellation.
 #[allow(dead_code)]
 pub enum TruckTessResult {
-    /// A single world-space point (from Vertex).
-    Point([f32; 3]),
-    /// An ordered sequence of points forming a polyline (from Edge or Wire).
-    Lines(Vec<[f32; 3]>),
+    /// A single world-space point (from Vertex). Double-single (high, low).
+    Point([f32; 3], [f32; 3]),
+    /// An ordered sequence of points forming a polyline (from Edge or Wire),
+    /// returned as parallel double-single (high, low) f32 buffers so the GPU
+    /// keeps sub-unit precision at UTM-scale coordinates.
+    Lines(Vec<[f32; 3]>, Vec<[f32; 3]>),
     /// A triangle mesh (from Face, Shell, or Solid).
     Mesh {
         verts: Vec<[f32; 3]>,
@@ -98,11 +100,25 @@ fn to_local(x: f64, y: f64, z: f64, off: [f64; 3]) -> [f32; 3] {
     ]
 }
 
+/// Sub-f32 residual of `to_local`, computed in f64 — the renderer pairs this
+/// with the high half so the double-single shader path reconstructs the f64
+/// source even when the high half is quantized to half a metre at UTM scale.
+#[inline]
+fn to_local_low(x: f64, y: f64, z: f64, off: [f64; 3], hi: [f32; 3]) -> [f32; 3] {
+    [
+        ((x - off[0]) - hi[0] as f64) as f32,
+        ((y - off[1]) - hi[1] as f64) as f32,
+        ((z - off[2]) - hi[2] as f64) as f32,
+    ]
+}
+
 // ── Vertex ────────────────────────────────────────────────────────────────
 
 pub fn tessellate_vertex(v: &Vertex, offset: [f64; 3]) -> TruckTessResult {
     let p = v.point();
-    TruckTessResult::Point(to_local(p.x, p.y, p.z, offset))
+    let hi = to_local(p.x, p.y, p.z, offset);
+    let lo = to_local_low(p.x, p.y, p.z, offset, hi);
+    TruckTessResult::Point(hi, lo)
 }
 
 // ── Edge ──────────────────────────────────────────────────────────────────
@@ -115,29 +131,36 @@ pub fn tessellate_edge(e: &Edge, offset: [f64; 3]) -> TruckTessResult {
     // more on tight curves, all within the active chord-height tolerance.
     // The Scene scales this with zoom so far-out arcs aren't oversampled.
     let (_, pts) = curve.parameter_division((t0, t1), current_curve_tol());
-    let lines = pts
-        .iter()
-        .map(|p| to_local(p.x, p.y, p.z, offset))
-        .collect();
-    TruckTessResult::Lines(lines)
+    let mut high: Vec<[f32; 3]> = Vec::with_capacity(pts.len());
+    let mut low: Vec<[f32; 3]> = Vec::with_capacity(pts.len());
+    for p in &pts {
+        let hi = to_local(p.x, p.y, p.z, offset);
+        let lo = to_local_low(p.x, p.y, p.z, offset, hi);
+        high.push(hi);
+        low.push(lo);
+    }
+    TruckTessResult::Lines(high, low)
 }
 
 // ── Wire ──────────────────────────────────────────────────────────────────
 
 pub fn tessellate_wire(w: &Wire, offset: [f64; 3]) -> TruckTessResult {
-    let mut pts: Vec<[f32; 3]> = Vec::new();
+    let mut high: Vec<[f32; 3]> = Vec::new();
+    let mut low: Vec<[f32; 3]> = Vec::new();
     for edge in w.edge_iter() {
-        if let TruckTessResult::Lines(ep) = tessellate_edge(edge, offset) {
-            if pts.is_empty() {
-                pts = ep;
+        if let TruckTessResult::Lines(eh, el) = tessellate_edge(edge, offset) {
+            if high.is_empty() {
+                high = eh;
+                low = el;
             } else {
                 // Skip the first point of each continuation edge to avoid
                 // duplicating the shared junction vertex.
-                pts.extend_from_slice(&ep[1..]);
+                high.extend_from_slice(&eh[1..]);
+                low.extend_from_slice(&el[1..]);
             }
         }
     }
-    TruckTessResult::Lines(pts)
+    TruckTessResult::Lines(high, low)
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────

@@ -104,13 +104,22 @@ pub fn edge_wires(solid: &Solid) -> Vec<acadrust::entities::Wire> {
     let mut wires = Vec::new();
     for shell in solid.boundaries() {
         for edge in shell.edge_iter() {
-            if let TruckTessResult::Lines(pts) = tessellate_edge(&edge, [0.0; 3]) {
+            if let TruckTessResult::Lines(pts, pts_low) =
+                tessellate_edge(&edge, [0.0; 3])
+            {
                 if pts.len() < 2 {
                     continue;
                 }
                 let pts3: Vec<Vector3> = pts
                     .iter()
-                    .map(|p| Vector3::new(p[0] as f64, p[1] as f64, p[2] as f64))
+                    .zip(pts_low.iter())
+                    .map(|(p, l)| {
+                        Vector3::new(
+                            p[0] as f64 + l[0] as f64,
+                            p[1] as f64 + l[1] as f64,
+                            p[2] as f64 + l[2] as f64,
+                        )
+                    })
                     .collect();
                 wires.push(acadrust::entities::Wire::from_points(pts3));
             }
