@@ -2618,7 +2618,7 @@ impl OpenCADStudio {
                     };
                     let cam = self.tabs[i].scene.camera.borrow();
                     let raw_paper = cam.pick_on_target_plane(p, bounds);
-                    let vp_mat = cam.view_proj(bounds);
+                    let view_rot = cam.view_proj_rte(bounds); let eye = cam.eye_f64();
                     drop(cam);
                     let raw = self.tabs[i].scene.paper_to_model(raw_paper);
 
@@ -2648,7 +2648,7 @@ impl OpenCADStudio {
                     self.snapper.from_point = None;
                     let (go, gr) = self.tabs[i].ucs_grid_basis();
                     let snap_hit =
-                        self.snapper.snap(raw, p, &all_wires[..], vp_mat, bounds, go, gr);
+                        self.snapper.snap(raw, p, &all_wires[..], view_rot, eye, bounds, go, gr);
                     let mut snapped = snap_hit.map(|s| s.world).unwrap_or(raw);
                     self.tabs[i].snap_result = snap_hit;
                     if let Some(s) = self.tabs[i].snap_result.as_mut() {
@@ -2666,7 +2666,8 @@ impl OpenCADStudio {
                                 snapped,
                                 base,
                                 self.polar_increment_deg,
-                                vp_mat,
+                                view_rot,
+                                eye,
                                 bounds,
                                 self.snapper.osnap_radius_px,
                                 &ucs_xf,
@@ -2782,10 +2783,13 @@ impl OpenCADStudio {
                             .borrow()
                             .pick_on_target_plane(p, bounds)
                     };
-                    let view_proj = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                    let (view_rot, eye) = {
+                        let cam = self.tabs[i].scene.camera.borrow();
+                        (cam.view_proj_rte(bounds), cam.eye_f64())
+                    };
                     // Sync grid-snap spacing to the adaptive spacing of the visible grid.
                     self.snapper.grid_spacing =
-                        crate::ui::overlay::compute_grid_step(view_proj, bounds);
+                        crate::ui::overlay::compute_grid_step(view_rot, bounds);
                     // In MSPACE, map paper-space cursor to model space so that
                     // command previews and snapping work in the correct coordinate space.
                     let cursor_world = self.tabs[i].scene.paper_to_model(cursor_paper);
@@ -2818,14 +2822,15 @@ impl OpenCADStudio {
                             cursor_world,
                             p,
                             &all_wires[..],
-                            view_proj,
+                            view_rot,
+                            eye,
                             bounds,
                         )
                     } else {
                         let (go, gr) = self.tabs[i].ucs_grid_basis();
                         self.snapper.from_point = self.last_point;
                         self.snapper
-                            .snap(cursor_world, p, &all_wires[..], view_proj, bounds, go, gr)
+                            .snap(cursor_world, p, &all_wires[..], view_rot, eye, bounds, go, gr)
                     };
 
                     // Object Snap Tracking: update dwell, then align the cursor
@@ -2835,7 +2840,8 @@ impl OpenCADStudio {
                         let snap_world = self.tabs[i].snap_result.map(|s| s.world);
                         self.snapper.update_otrack_dwell(
                             snap_world,
-                            view_proj,
+                            view_rot,
+                            eye,
                             bounds,
                             Instant::now(),
                         );
@@ -2848,7 +2854,8 @@ impl OpenCADStudio {
                             let ucs = self.tabs[i].scene.viewcube_ucs_mat();
                             self.snapper.otrack_snap(
                                 cursor_world,
-                                view_proj,
+                                view_rot,
+                                eye,
                                 bounds,
                                 step,
                                 self.last_point,
@@ -2889,7 +2896,8 @@ impl OpenCADStudio {
                                             pt,
                                             base,
                                             self.polar_increment_deg,
-                                            view_proj,
+                                            view_rot,
+                                            eye,
                                             bounds,
                                             self.snapper.osnap_radius_px,
                                             &ucs_xf,
@@ -2912,7 +2920,7 @@ impl OpenCADStudio {
                     // last point) so the dynamic-input overlay can place its
                     // guide geometry and labels.
                     let project = |bp: glam::Vec3| {
-                        let ndc = view_proj.project_point3(bp);
+                        let ndc = view_rot.project_point3((bp.as_dvec3() - eye).as_vec3());
                         iced::Point::new(
                             (ndc.x + 1.0) * 0.5 * bounds.width,
                             (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -2948,7 +2956,7 @@ impl OpenCADStudio {
                         });
                         if let Some(pick) = pick {
                             let world = glam::Vec3::new(pick.x as f32, pick.y as f32, effective.z);
-                            let ndc = view_proj.project_point3(world);
+                            let ndc = view_rot.project_point3((world.as_dvec3() - eye).as_vec3());
                             let screen = iced::Point::new(
                                 (ndc.x + 1.0) * 0.5 * bounds.width,
                                 (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -2989,7 +2997,7 @@ impl OpenCADStudio {
                         p
                     } else if needs_entity {
                         let hover_handle =
-                            scene::pick::hit_test::click_hit(p, &all_wires[..], view_proj, bounds)
+                            scene::pick::hit_test::click_hit(p, &all_wires[..], view_rot, eye, bounds)
                                 .and_then(|s| Scene::handle_from_wire_name(s))
                                 .unwrap_or(acadrust::Handle::NULL);
                         let mut p = self.tabs[i]
@@ -3440,7 +3448,7 @@ impl OpenCADStudio {
                         };
                         // Convert paper-space → model-space when inside a viewport.
                         let raw = self.tabs[i].scene.paper_to_model(raw_paper);
-                        let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                        let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                         let all_wires = self.tabs[i].scene.hit_test_wires();
                         let needs_tan = self.tabs[i]
                             .active_cmd
@@ -3456,11 +3464,11 @@ impl OpenCADStudio {
                             None
                         } else if needs_tan {
                             self.snapper
-                                .snap_tangent_only(raw, p, &all_wires[..], vp_mat, bounds)
+                                .snap_tangent_only(raw, p, &all_wires[..], view_rot, eye, bounds)
                         } else {
                             let (go, gr) = self.tabs[i].ucs_grid_basis();
                             self.snapper.from_point = self.last_point;
-                            self.snapper.snap(raw, p, &all_wires[..], vp_mat, bounds, go, gr)
+                            self.snapper.snap(raw, p, &all_wires[..], view_rot, eye, bounds, go, gr)
                         };
                         // snap.world is in paper-space (projected wire coords in MSPACE);
                         // convert to model-space so commands receive consistent coordinates.
@@ -3482,7 +3490,7 @@ impl OpenCADStudio {
                             };
                             let ucs = self.tabs[i].scene.viewcube_ucs_mat();
                             self.snapper
-                                .otrack_snap(raw, vp_mat, bounds, step, self.last_point, ucs)
+                                .otrack_snap(raw, view_rot, eye, bounds, step, self.last_point, ucs)
                         } else {
                             None
                         };
@@ -3505,7 +3513,8 @@ impl OpenCADStudio {
                                         pt,
                                         base,
                                         self.polar_increment_deg,
-                                        vp_mat,
+                                        view_rot,
+                                        eye,
                                         bounds,
                                         self.snapper.osnap_radius_px,
                                         &ucs_xf,
@@ -3569,9 +3578,9 @@ impl OpenCADStudio {
                         .map(|c| c.needs_entity_pick())
                         .unwrap_or(false)
                     {
-                        let vp_mat2 = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                        let (view_rot2, eye2) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                         let all_wires2 = self.tabs[i].scene.hit_test_wires();
-                        let hit = scene::pick::hit_test::click_hit(p, &all_wires2[..], vp_mat2, bounds)
+                        let hit = scene::pick::hit_test::click_hit(p, &all_wires2[..], view_rot2, eye2, bounds)
                             .and_then(|s| Scene::handle_from_wire_name(s));
                         if let Some(handle) = hit {
                             // Some commands (e.g. SS_CATCHMENT) need the entity
@@ -3759,13 +3768,14 @@ impl OpenCADStudio {
                             if let Some(a) = box_anchor {
                                 let crossing = box_crossing;
                                 let all_wires = self.tabs[i].scene.hit_test_wires();
-                                let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                                let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                                 let mut handles: Vec<Handle> = scene::pick::hit_test::box_hit(
                                     a,
                                     p,
                                     crossing,
                                     &all_wires[..],
-                                    vp_mat,
+                                    view_rot,
+                                    eye,
                                     bounds,
                                 )
                                 .into_iter()
@@ -3776,14 +3786,15 @@ impl OpenCADStudio {
                                     p,
                                     crossing,
                                     &self.tabs[i].scene.visible_hatches_for_click(),
-                                    vp_mat,
+                                    view_rot,
+                                    eye,
                                     bounds,
                                 ));
                                 handles.extend(
-                                    self.tabs[i].scene.mesh_box_hit(a, p, crossing, vp_mat, bounds),
+                                    self.tabs[i].scene.mesh_box_hit(a, p, crossing, view_rot, eye, bounds),
                                 );
                                 handles.extend(self.tabs[i].scene.block_mesh_box_hit(
-                                    a, p, crossing, vp_mat, bounds,
+                                    a, p, crossing, view_rot, eye, bounds,
                                 ));
                                 // Box/lasso accumulates like individual picks
                                 // (issue #83): a plain box adds to the current
@@ -3818,12 +3829,13 @@ impl OpenCADStudio {
                             };
                             self.tabs[i].scene.selection.borrow_mut().poly_last_crossing = crossing;
                             let all_wires = self.tabs[i].scene.hit_test_wires();
-                            let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                            let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                             let mut handles: Vec<Handle> = scene::pick::hit_test::poly_hit(
                                 &poly_pts,
                                 crossing,
                                 &all_wires[..],
-                                vp_mat,
+                                view_rot,
+                                eye,
                                 bounds,
                             )
                             .into_iter()
@@ -3833,14 +3845,15 @@ impl OpenCADStudio {
                                 &poly_pts,
                                 crossing,
                                 &self.tabs[i].scene.visible_hatches_for_click(),
-                                vp_mat,
+                                view_rot,
+                                eye,
                                 bounds,
                             ));
                             handles.extend(
-                                self.tabs[i].scene.mesh_poly_hit(&poly_pts, crossing, vp_mat, bounds),
+                                self.tabs[i].scene.mesh_poly_hit(&poly_pts, crossing, view_rot, eye, bounds),
                             );
                             handles.extend(self.tabs[i].scene.block_mesh_poly_hit(
-                                &poly_pts, crossing, vp_mat, bounds,
+                                &poly_pts, crossing, view_rot, eye, bounds,
                             ));
                             // Selection filter: keep only allowed types.
                             handles.retain(|&h| self.tabs[i].scene.passes_selection_filter(h));
@@ -3870,7 +3883,7 @@ impl OpenCADStudio {
                     } else {
                         if box_anchor.is_none() {
                             let all_wires = self.tabs[i].scene.hit_test_wires();
-                            let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                            let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
 
                             // Selection cycling: where two or more objects
                             // overlap, open a list box to pick which one; a
@@ -3882,7 +3895,8 @@ impl OpenCADStudio {
                                 let cands: Vec<Handle> = scene::pick::hit_test::click_hits_all(
                                     p,
                                     &all_wires[..],
-                                    vp_mat,
+                                    view_rot,
+                                    eye,
                                     bounds,
                                 )
                                 .into_iter()
@@ -3898,13 +3912,14 @@ impl OpenCADStudio {
 
                             if !handled_by_cycling {
                                 let hit =
-                                    scene::pick::hit_test::click_hit(p, &all_wires[..], vp_mat, bounds)
+                                    scene::pick::hit_test::click_hit(p, &all_wires[..], view_rot, eye, bounds)
                                         .and_then(|s| Scene::handle_from_wire_name(s))
                                         .or_else(|| {
                                             scene::pick::hit_test::click_hit_hatch(
                                                 p,
                                                 &self.tabs[i].scene.visible_hatches_for_click(),
-                                                vp_mat,
+                                                view_rot,
+                                                eye,
                                                 bounds,
                                             )
                                         })
@@ -3914,7 +3929,8 @@ impl OpenCADStudio {
                                             scene::pick::hit_test::click_hit_insert_hatch(
                                                 p,
                                                 &self.tabs[i].scene.insert_hatches_for_click(),
-                                                vp_mat,
+                                                view_rot,
+                                                eye,
                                                 bounds,
                                             )
                                         })
@@ -3923,7 +3939,7 @@ impl OpenCADStudio {
                                             // body — top-level solids and block-internal
                                             // ones together, front-most wins (a block in
                                             // front of a solid resolves to the block).
-                                            self.tabs[i].scene.solid_click_hit(p, vp_mat, bounds)
+                                            self.tabs[i].scene.solid_click_hit(p, view_rot, eye, bounds)
                                         });
                                 // Selection filter: drop a pick whose type is excluded.
                                 let hit =
@@ -3960,13 +3976,14 @@ impl OpenCADStudio {
                             let a = box_anchor.unwrap();
                             let crossing = box_crossing;
                             let all_wires = self.tabs[i].scene.hit_test_wires();
-                            let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                            let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                             let mut handles: Vec<Handle> = scene::pick::hit_test::box_hit(
                                 a,
                                 p,
                                 crossing,
                                 &all_wires[..],
-                                vp_mat,
+                                view_rot,
+                                eye,
                                 bounds,
                             )
                             .into_iter()
@@ -3977,14 +3994,15 @@ impl OpenCADStudio {
                                 p,
                                 crossing,
                                 &self.tabs[i].scene.visible_hatches_for_click(),
-                                vp_mat,
+                                view_rot,
+                                eye,
                                 bounds,
                             ));
                             handles.extend(
-                                self.tabs[i].scene.mesh_box_hit(a, p, crossing, vp_mat, bounds),
+                                self.tabs[i].scene.mesh_box_hit(a, p, crossing, view_rot, eye, bounds),
                             );
                             handles.extend(self.tabs[i].scene.block_mesh_box_hit(
-                                a, p, crossing, vp_mat, bounds,
+                                a, p, crossing, view_rot, eye, bounds,
                             ));
                             // Selection filter: keep only allowed types.
                             handles.retain(|&h| self.tabs[i].scene.passes_selection_filter(h));
@@ -4061,14 +4079,14 @@ impl OpenCADStudio {
                             width: vw,
                             height: vh,
                         };
-                        let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                        let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                         let all_wires = self.tabs[i].scene.hit_test_wires();
                         // Resolve the double-clicked object — its wire, or (for a
                         // block/solid with no wire under the cursor) its shaded
                         // body, which maps to the parent INSERT.
-                        let hit = scene::pick::hit_test::click_hit(p, &all_wires[..], vp_mat, bounds)
+                        let hit = scene::pick::hit_test::click_hit(p, &all_wires[..], view_rot, eye, bounds)
                             .and_then(|s| Scene::handle_from_wire_name(s))
-                            .or_else(|| self.tabs[i].scene.solid_click_hit(p, vp_mat, bounds));
+                            .or_else(|| self.tabs[i].scene.solid_click_hit(p, view_rot, eye, bounds));
                         if let Some(handle) = hit {
                             // Any text-bearing entity opens its in-place editor
                             // (plain box or rich MText editor, per type). A
@@ -4133,9 +4151,9 @@ impl OpenCADStudio {
 
                         // 1) Try direct wire hit — works when the border is clicked.
                         let hit_vp: Option<acadrust::Handle> = {
-                            let vp_mat = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                            let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                             let all_wires = self.tabs[i].scene.hit_test_wires();
-                            scene::pick::hit_test::click_hit(p, &all_wires[..], vp_mat, bounds)
+                            scene::pick::hit_test::click_hit(p, &all_wires[..], view_rot, eye, bounds)
                                 .and_then(|s| Scene::handle_from_wire_name(s))
                                 .and_then(|h| {
                                     if let Some(AcadEntityType::Viewport(vp)) =
@@ -4416,18 +4434,19 @@ impl OpenCADStudio {
                     height: dwell.tile_size.1,
                 };
                 let p = dwell.point;
-                let view_proj = self.tabs[i].scene.camera.borrow().view_proj(bounds);
+                let (view_rot, eye) = { let c = self.tabs[i].scene.camera.borrow(); (c.view_proj_rte(bounds), c.eye_f64()) };
                 let all_wires = self.tabs[i].scene.hit_test_wires();
                 // Mirror the click-selection pick order so the rollover
                 // highlights every selectable object: wire → hatch →
                 // block-internal hatch → shaded 3D solid body.
-                let hovered = scene::pick::hit_test::click_hit(p, &all_wires[..], view_proj, bounds)
+                let hovered = scene::pick::hit_test::click_hit(p, &all_wires[..], view_rot, eye, bounds)
                     .and_then(|s| Scene::handle_from_wire_name(s))
                     .or_else(|| {
                         scene::pick::hit_test::click_hit_hatch(
                             p,
                             &self.tabs[i].scene.visible_hatches_for_click(),
-                            view_proj,
+                            view_rot,
+                            eye,
                             bounds,
                         )
                     })
@@ -4435,11 +4454,12 @@ impl OpenCADStudio {
                         scene::pick::hit_test::click_hit_insert_hatch(
                             p,
                             &self.tabs[i].scene.insert_hatches_for_click(),
-                            view_proj,
+                            view_rot,
+                            eye,
                             bounds,
                         )
                     })
-                    .or_else(|| self.tabs[i].scene.solid_click_hit(p, view_proj, bounds));
+                    .or_else(|| self.tabs[i].scene.solid_click_hit(p, view_rot, eye, bounds));
                 self.tabs[i].scene.set_hover_highlight(hovered);
                 self.hover_dwell = None;
                 Task::none()

@@ -228,14 +228,15 @@ pub(super) fn polar_constrain_near(
     pt: glam::Vec3,
     base: glam::Vec3,
     step_deg: f32,
-    view_proj: glam::Mat4,
+    view_rot: glam::Mat4,
+    eye: glam::DVec3,
     bounds: iced::Rectangle,
     tol_px: f32,
     xf: &UcsXform,
 ) -> glam::Vec3 {
     let snapped = polar_constrain(pt, base, step_deg, xf);
     let to_screen = |w: glam::Vec3| {
-        let ndc = view_proj.project_point3(w);
+        let ndc = view_rot.project_point3((w.as_dvec3() - eye).as_vec3());
         (
             (ndc.x + 1.0) * 0.5 * bounds.width,
             (1.0 - ndc.y) * 0.5 * bounds.height,

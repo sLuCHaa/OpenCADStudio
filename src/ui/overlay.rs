@@ -69,10 +69,13 @@ pub struct GridParams {
 /// Returns the smallest power-of-5 multiple of 1.0 that places grid lines at
 /// least `MIN_GRID_PX` pixels apart.  This matches exactly what `draw_grid`
 /// renders, so callers can sync snap spacing to the visible grid.
-pub fn compute_grid_step(vp: Mat4, bounds: iced::Rectangle) -> f32 {
+pub fn compute_grid_step(view_rot: Mat4, bounds: iced::Rectangle) -> f32 {
     use glam::Vec3;
+    // Only the per-unit screen scale is needed; project small eye-relative
+    // offsets (0 / X / Y) through the rotation-only matrix so this stays correct
+    // and precise at any absolute coordinate (no eye term required).
     let w2s = |world: Vec3| {
-        let ndc = vp.project_point3(world);
+        let ndc = view_rot.project_point3(world);
         glam::Vec2::new(
             (ndc.x + 1.0) * 0.5 * bounds.width,
             (1.0 - ndc.y) * 0.5 * bounds.height,

@@ -26,7 +26,8 @@ const CLICK_THRESHOLD_PX: f32 = 8.0;
 pub fn click_hit<'a>(
     cursor: Point,
     wires: &'a [WireModel],
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Option<&'a str> {
     let mut best_dist = CLICK_THRESHOLD_PX;
@@ -38,7 +39,7 @@ pub fn click_hit<'a>(
     // on its world x/y, so its world-space AABB projects exactly and we can
     // reject wires nowhere near the cursor without projecting any of their
     // points (the dominant per-move cost on 100 k-wire drawings).
-    let z_flat = view_proj.z_axis.x.abs() < 1e-9 && view_proj.z_axis.y.abs() < 1e-9;
+    let z_flat = view_rot.z_axis.x.abs() < 1e-9 && view_rot.z_axis.y.abs() < 1e-9;
 
     // Q: lazy projection — no Vec allocation per wire; NaN resets the segment chain.
     for wire in wires {
@@ -54,7 +55,7 @@ pub fn click_hit<'a>(
             let mut sx1 = f32::MIN;
             let mut sy1 = f32::MIN;
             for (cx, cy) in [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)] {
-                let s = world_to_screen(Vec3::new(cx, cy, 0.0), view_proj, bounds);
+                let s = world_to_screen(Vec3::new(cx, cy, 0.0), view_rot, eye, bounds);
                 sx0 = sx0.min(s.x);
                 sx1 = sx1.max(s.x);
                 sy0 = sy0.min(s.y);
@@ -72,7 +73,7 @@ pub fn click_hit<'a>(
                 prev = None;
                 continue;
             }
-            let cur = world_to_screen(Vec3::new(px, py, pz), view_proj, bounds);
+            let cur = world_to_screen(Vec3::new(px, py, pz), view_rot, eye, bounds);
             if let Some(p0) = prev {
                 let d = dist_point_to_segment(cursor, p0, cur);
                 if d < best_dist {
@@ -93,7 +94,8 @@ pub fn click_hit<'a>(
 pub fn click_hits_all<'a>(
     cursor: Point,
     wires: &'a [WireModel],
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<&'a str> {
     let mut hits: Vec<(f32, &str)> = Vec::new();
@@ -106,7 +108,7 @@ pub fn click_hits_all<'a>(
                 prev = None;
                 continue;
             }
-            let cur = world_to_screen(Vec3::new(px, py, pz), view_proj, bounds);
+            let cur = world_to_screen(Vec3::new(px, py, pz), view_rot, eye, bounds);
             if let Some(p0) = prev {
                 let d = dist_point_to_segment(cursor, p0, cur);
                 if d < best_for_wire {
@@ -131,7 +133,8 @@ pub fn click_hits_all<'a>(
 pub fn mesh_click_hit<'a>(
     cursor: Point,
     meshes: impl Iterator<Item = (Handle, &'a MeshModel)>,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Option<Handle> {
     let mut best: Option<(f32, Handle)> = None;
@@ -149,7 +152,7 @@ pub fn mesh_click_hit<'a>(
             let mut sp = [Point::ORIGIN; 3];
             let mut depth = 0.0f32;
             for (j, w) in tri.iter().enumerate() {
-                let ndc = view_proj.project_point3(Vec3::new(w[0], w[1], w[2]));
+                let ndc = view_rot.project_point3((Vec3::new(w[0], w[1], w[2]).as_dvec3() - eye).as_vec3());
                 sp[j] = Point::new(
                     (ndc.x + 1.0) * 0.5 * bounds.width,
                     (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -169,11 +172,11 @@ pub fn mesh_click_hit<'a>(
 }
 
 /// Project a mesh's vertices to screen space.
-fn project_mesh_verts(mesh: &MeshModel, view_proj: Mat4, bounds: Rectangle) -> Vec<Point> {
+fn project_mesh_verts(mesh: &MeshModel, view_rot: Mat4, eye: glam::DVec3, bounds: Rectangle) -> Vec<Point> {
     mesh.verts
         .iter()
         .map(|w| {
-            let ndc = view_proj.project_point3(Vec3::new(w[0], w[1], w[2]));
+            let ndc = view_rot.project_point3((Vec3::new(w[0], w[1], w[2]).as_dvec3() - eye).as_vec3());
             Point::new(
                 (ndc.x + 1.0) * 0.5 * bounds.width,
                 (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -208,7 +211,8 @@ pub fn mesh_box_hit<'a>(
     b: Point,
     crossing: bool,
     meshes: impl Iterator<Item = (Handle, &'a MeshModel)>,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<Handle> {
     let (min_x, max_x) = (a.x.min(b.x), a.x.max(b.x));
@@ -222,7 +226,7 @@ pub fn mesh_box_hit<'a>(
     ];
     let mut out = Vec::new();
     for (h, mesh) in meshes {
-        let proj = project_mesh_verts(mesh, view_proj, bounds);
+        let proj = project_mesh_verts(mesh, view_rot, eye, bounds);
         if proj.is_empty() {
             continue;
         }
@@ -245,7 +249,8 @@ pub fn mesh_poly_hit<'a>(
     poly: &[Point],
     crossing: bool,
     meshes: impl Iterator<Item = (Handle, &'a MeshModel)>,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<Handle> {
     if poly.len() < 3 {
@@ -253,7 +258,7 @@ pub fn mesh_poly_hit<'a>(
     }
     let mut out = Vec::new();
     for (h, mesh) in meshes {
-        let proj = project_mesh_verts(mesh, view_proj, bounds);
+        let proj = project_mesh_verts(mesh, view_rot, eye, bounds);
         if proj.is_empty() {
             continue;
         }
@@ -285,7 +290,8 @@ pub fn box_hit<'a>(
     corner_b: Point,
     crossing: bool,
     wires: &'a [WireModel],
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<&'a str> {
     let min_x = corner_a.x.min(corner_b.x);
@@ -339,7 +345,7 @@ pub fn box_hit<'a>(
                     prev = None;
                     continue;
                 }
-                let sp = world_to_screen(Vec3::new(px, py, pz), view_proj, bounds);
+                let sp = world_to_screen(Vec3::new(px, py, pz), view_rot, eye, bounds);
                 if crossing {
                     if inside(sp) {
                         hit = true;
@@ -385,7 +391,8 @@ pub fn poly_hit<'a>(
     poly: &[Point],
     crossing: bool,
     wires: &'a [WireModel],
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<&'a str> {
     if poly.len() < 3 {
@@ -426,7 +433,7 @@ pub fn poly_hit<'a>(
                     prev = None;
                     continue;
                 }
-                let sp = world_to_screen(Vec3::new(px, py, pz), view_proj, bounds);
+                let sp = world_to_screen(Vec3::new(px, py, pz), view_rot, eye, bounds);
                 if crossing {
                     if point_in_polygon(sp, poly) {
                         hit = true;
@@ -462,8 +469,8 @@ pub fn poly_hit<'a>(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-fn world_to_screen(world: Vec3, view_proj: Mat4, bounds: Rectangle) -> Point {
-    let ndc = view_proj.project_point3(world);
+fn world_to_screen(world: Vec3, view_rot: Mat4, eye: glam::DVec3, bounds: Rectangle) -> Point {
+    let ndc = view_rot.project_point3((world.as_dvec3() - eye).as_vec3());
     Point::new(
         (ndc.x + 1.0) * 0.5 * bounds.width,
         (1.0 - ndc.y) * 0.5 * bounds.height,
@@ -560,11 +567,12 @@ fn segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool {
 pub fn click_hit_hatch(
     cursor: Point,
     hatches: &HashMap<Handle, HatchModel>,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Option<Handle> {
     for (&handle, hatch) in hatches {
-        if hatch_contains_screen_point(hatch, cursor, view_proj, bounds) {
+        if hatch_contains_screen_point(hatch, cursor, view_rot, eye, bounds) {
             return Some(handle);
         }
     }
@@ -579,11 +587,12 @@ pub fn click_hit_hatch(
 pub fn click_hit_insert_hatch(
     cursor: Point,
     insert_hatches: &[(Handle, HatchModel)],
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Option<Handle> {
     for (handle, hatch) in insert_hatches {
-        if hatch_contains_screen_point(hatch, cursor, view_proj, bounds) {
+        if hatch_contains_screen_point(hatch, cursor, view_rot, eye, bounds) {
             return Some(*handle);
         }
     }
@@ -593,7 +602,8 @@ pub fn click_hit_insert_hatch(
 fn hatch_contains_screen_point(
     hatch: &HatchModel,
     cursor: Point,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> bool {
     // boundary verts are stored as small f32 offsets from
@@ -606,7 +616,7 @@ fn hatch_contains_screen_point(
         .iter()
         .map(|&[x, y]| {
             if x.is_finite() && y.is_finite() {
-                world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_proj, bounds)
+                world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_rot, eye, bounds)
             } else {
                 // Preserve path separators for the NaN-aware
                 // point_in_polygon ray-cast.
@@ -623,7 +633,8 @@ pub fn box_hit_hatch(
     corner_b: Point,
     crossing: bool,
     hatches: &HashMap<Handle, HatchModel>,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<Handle> {
     let min_x = corner_a.x.min(corner_b.x);
@@ -648,7 +659,7 @@ pub fn box_hit_hatch(
             let screen: Vec<Point> = hatch
                 .boundary
                 .iter()
-                .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_proj, bounds))
+                .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_rot, eye, bounds))
                 .collect();
             let hit = if crossing {
                 screen.iter().any(|&sp| inside(sp))
@@ -669,7 +680,8 @@ pub fn poly_hit_hatch(
     poly: &[Point],
     crossing: bool,
     hatches: &HashMap<Handle, HatchModel>,
-    view_proj: Mat4,
+    view_rot: Mat4,
+    eye: glam::DVec3,
     bounds: Rectangle,
 ) -> Vec<Handle> {
     if poly.len() < 3 {
@@ -687,7 +699,7 @@ pub fn poly_hit_hatch(
             let screen: Vec<Point> = hatch
                 .boundary
                 .iter()
-                .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_proj, bounds))
+                .map(|&[x, y]| world_to_screen(Vec3::new(x + ox, y + oy, 0.0), view_rot, eye, bounds))
                 .collect();
             let hit = if crossing {
                 screen.iter().any(|&sp| point_in_polygon(sp, poly))

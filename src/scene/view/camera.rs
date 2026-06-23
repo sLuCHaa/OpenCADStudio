@@ -225,65 +225,17 @@ impl Camera {
         plane_normal: Vec3,
         plane_point: Vec3,
     ) -> Vec3 {
-        let ndc_x = (screen.x / bounds.width) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (screen.y / bounds.height) * 2.0;
-        let inv = self.view_proj(bounds).inverse();
-
-        let (ray_origin, ray_dir) = match self.projection {
-            Projection::Perspective => {
-                let near_pt = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
-                let far_pt = inv.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
-                let dir = (far_pt - near_pt).normalize();
-                (near_pt, dir)
-            }
-            Projection::Orthographic => {
-                let origin = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
-                let forward = (self.target.as_vec3() - self.eye()).normalize();
-                (origin, forward)
-            }
-        };
-
-        let denom = ray_dir.dot(plane_normal);
-        if denom.abs() < 1e-6 {
-            return plane_point;
-        }
-        let t = (plane_point - ray_origin).dot(plane_normal) / denom;
-        if t < 0.0 {
-            return plane_point;
-        }
-        ray_origin + ray_dir * t
+        // Delegate to the eye-relative f64 unproject so the cursor stays
+        // precise at UTM-scale coordinates (the old full view_proj.inverse()
+        // cancelled catastrophically in f32).
+        self.unproject_on_plane_f64(screen, bounds, plane_normal, plane_point.as_dvec3())
+            .as_vec3()
     }
 
     pub fn pick_on_target_plane(&self, screen: Point, bounds: Rectangle) -> Vec3 {
-        let ndc_x = (screen.x / bounds.width) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (screen.y / bounds.height) * 2.0;
-        let inv = self.view_proj(bounds).inverse();
-
-        match self.projection {
-            Projection::Perspective => {
-                let target = self.target.as_vec3();
-                let near_pt = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
-                let far_pt = inv.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
-                let dir = (far_pt - near_pt).normalize();
-                let forward = (target - self.eye()).normalize();
-                let denom = dir.dot(forward);
-                if denom.abs() < 1e-6 {
-                    return target;
-                }
-                let t = (target - near_pt).dot(forward) / denom;
-                if t < 0.0 {
-                    return target;
-                }
-                near_pt + dir * t
-            }
-            Projection::Orthographic => {
-                let target = self.target.as_vec3();
-                let ray_origin = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
-                let forward = (target - self.eye()).normalize();
-                let t = (target - ray_origin).dot(forward) / forward.dot(forward);
-                ray_origin + forward * t
-            }
-        }
+        let forward = (self.target.as_vec3() - self.eye()).normalize_or(Vec3::NEG_Z);
+        self.unproject_on_plane_f64(screen, bounds, forward, self.target)
+            .as_vec3()
     }
 
 

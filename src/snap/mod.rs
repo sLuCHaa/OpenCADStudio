@@ -177,7 +177,8 @@ impl Snapper {
     pub fn update_otrack_dwell(
         &mut self,
         snap_world: Option<Vec3>,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
         now: Instant,
     ) {
@@ -202,8 +203,8 @@ impl Snapper {
             Some(p) => {
                 // Convert to screen to measure pixel distance.
                 let is_same = if let Some(prev) = self.last_snap_world {
-                    let dp = world_to_screen(p, view_proj, bounds);
-                    let dp2 = world_to_screen(prev, view_proj, bounds);
+                    let dp = world_to_screen(p, view_rot, eye, bounds);
+                    let dp2 = world_to_screen(prev, view_rot, eye, bounds);
                     let dx = dp.x - dp2.x;
                     let dy = dp.y - dp2.y;
                     (dx * dx + dy * dy).sqrt() < DWELL_PX
@@ -259,7 +260,8 @@ impl Snapper {
     pub fn otrack_snap(
         &self,
         cursor_world: Vec3,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
         polar_step_deg: Option<f32>,
         last_point: Option<Vec3>,
@@ -271,11 +273,11 @@ impl Snapper {
             return None;
         }
 
-        let cursor_screen = world_to_screen(cursor_world, view_proj, bounds);
+        let cursor_screen = world_to_screen(cursor_world, view_rot, eye, bounds);
         // Use the same aperture as OSNAP so the catch distance is uniform.
         let r = self.osnap_radius_px;
         let screen_dist = |w: Vec3| {
-            let s = world_to_screen(w, view_proj, bounds);
+            let s = world_to_screen(w, view_rot, eye, bounds);
             ((s.x - cursor_screen.x).powi(2) + (s.y - cursor_screen.y).powi(2)).sqrt()
         };
 
@@ -409,7 +411,8 @@ impl Snapper {
         cursor_world: Vec3,
         cursor_screen: Point,
         wires: &[WireModel],
-        view_proj: Mat4,
+        view_rot: Mat4,
+        eye: glam::DVec3,
         bounds: Rectangle,
     ) -> Option<SnapResult> {
         let tmp = Snapper {
@@ -433,7 +436,8 @@ impl Snapper {
             cursor_world,
             cursor_screen,
             wires,
-            view_proj,
+            view_rot,
+            eye,
             bounds,
             Vec3::ZERO,
             Mat4::IDENTITY,
@@ -446,7 +450,8 @@ impl Snapper {
         cursor_world: Vec3,
         cursor_screen: Point,
         wires: &[WireModel],
-        view_proj: Mat4,
+        view_rot: Mat4,
+        eye: glam::DVec3,
         bounds: Rectangle,
         // Grid origin (render/wire space) and UCS→world rotation, so grid snap
         // lands on the UCS grid the user sees. `(ZERO, IDENTITY)` = world grid.
@@ -474,7 +479,7 @@ impl Snapper {
         // view_proj col-0 x = 2*zoom / viewport_width for an orthographic camera,
         // so scale_x * (width/2) = pixels per world unit.
         let world_snap_r = {
-            let s = view_proj.col(0).x.abs() * bounds.width * 0.5;
+            let s = view_rot.col(0).x.abs() * bounds.width * 0.5;
             if s > 1e-6 {
                 self.osnap_radius_px / s
             } else {
@@ -495,7 +500,7 @@ impl Snapper {
         };
 
         let mut try_pt = |world: Vec3, snap_type: SnapType| {
-            let screen = world_to_screen(world, view_proj, bounds);
+            let screen = world_to_screen(world, view_rot, eye, bounds);
             let d2 = dist2(screen, cursor_screen);
             // `!(d2 < radius2)` (not `d2 >= radius2`) so a NaN distance from
             // degenerate geometry is rejected: with priority selection a NaN
@@ -672,7 +677,8 @@ impl Snapper {
                         cursor_world,
                         p0,
                         p0 - p1,
-                        view_proj,
+                        view_rot,
+                        eye,
                         bounds,
                         self.osnap_radius_px,
                     ) {
@@ -687,7 +693,8 @@ impl Snapper {
                         cursor_world,
                         p_last,
                         p_last - p_prev,
-                        view_proj,
+                        view_rot,
+                        eye,
                         bounds,
                         self.osnap_radius_px,
                     ) {
@@ -709,7 +716,7 @@ impl Snapper {
                     Some(
                         w.points
                             .iter()
-                            .map(|&p| world_to_screen(Vec3::from(p), view_proj, bounds))
+                            .map(|&p| world_to_screen(Vec3::from(p), view_rot, eye, bounds))
                             .collect::<Vec<_>>(),
                     )
                 })
@@ -762,8 +769,8 @@ impl Snapper {
                 for tg in &wire.tangent_geoms {
                     let (world_pt, d2) = match tg {
                         TangentGeom::Line { p1, p2 } => {
-                            let sp0 = world_to_screen(Vec3::from(*p1), view_proj, bounds);
-                            let sp1 = world_to_screen(Vec3::from(*p2), view_proj, bounds);
+                            let sp0 = world_to_screen(Vec3::from(*p1), view_rot, eye, bounds);
+                            let sp1 = world_to_screen(Vec3::from(*p2), view_rot, eye, bounds);
                             let d2 = dist2_to_segment(cursor_screen, sp0, sp1);
                             let t = t_on_segment(cursor_screen, sp0, sp1);
                             let w = Vec3::from(*p1) + t * (Vec3::from(*p2) - Vec3::from(*p1));
@@ -771,10 +778,11 @@ impl Snapper {
                         }
                         TangentGeom::Circle { center, radius } => {
                             let cv = Vec3::from(*center);
-                            let sc = world_to_screen(cv, view_proj, bounds);
+                            let sc = world_to_screen(cv, view_rot, eye, bounds);
                             let rim = world_to_screen(
                                 Vec3::new(cv.x + radius, cv.y, cv.z),
-                                view_proj,
+                                view_rot,
+                                eye,
                                 bounds,
                             );
                             let sr = dist2(sc, rim).sqrt();
@@ -797,7 +805,7 @@ impl Snapper {
                     if d2 < radius2 && (rank < best_rank || (rank == best_rank && d2 < best_d2)) {
                         best_rank = rank;
                         best_d2 = d2;
-                        let screen_pt = world_to_screen(world_pt, view_proj, bounds);
+                        let screen_pt = world_to_screen(world_pt, view_rot, eye, bounds);
                         let tangent_obj = match tg {
                             TangentGeom::Line { p1, p2 } => TangentObject::Line {
                                 p1: Vec3::from(*p1),
@@ -940,7 +948,8 @@ fn extension_snap(
     cursor_world: Vec3,
     origin: Vec3,
     dir: Vec3,
-    view_proj: Mat4,
+    view_rot: Mat4,
+        eye: glam::DVec3,
     bounds: Rectangle,
     radius_px: f32,
 ) -> Option<Vec3> {
@@ -953,8 +962,8 @@ fn extension_snap(
         return None;
     } // only beyond the endpoint
     let world_pt = Vec3::new(origin.x + t * dir.x, origin.y + t * dir.y, origin.z);
-    let screen_pt = world_to_screen(world_pt, view_proj, bounds);
-    let cursor_screen = world_to_screen(cursor_world, view_proj, bounds);
+    let screen_pt = world_to_screen(world_pt, view_rot, eye, bounds);
+    let cursor_screen = world_to_screen(cursor_world, view_rot, eye, bounds);
     if dist2(screen_pt, cursor_screen) > radius_px * radius_px {
         return None;
     }
@@ -963,8 +972,13 @@ fn extension_snap(
 
 // ── Projection helpers ────────────────────────────────────────────────────
 
-fn world_to_screen(world: Vec3, view_proj: Mat4, bounds: Rectangle) -> Point {
-    let ndc = view_proj.project_point3(world);
+/// Project a world point to screen relative-to-eye: subtract the f64 eye first
+/// so the result is precise at UTM-scale absolute coordinates (a full
+/// view-projection with a ~1e7 translation cancels catastrophically in f32).
+/// `view_rot` is the rotation-only view-projection (Camera::view_proj_rte).
+fn world_to_screen(world: Vec3, view_rot: Mat4, eye: glam::DVec3, bounds: Rectangle) -> Point {
+    let rel = (world.as_dvec3() - eye).as_vec3();
+    let ndc = view_rot.project_point3(rel);
     Point::new(
         (ndc.x + 1.0) * 0.5 * bounds.width,
         (1.0 - ndc.y) * 0.5 * bounds.height,

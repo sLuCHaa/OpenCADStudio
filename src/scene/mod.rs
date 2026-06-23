@@ -2501,14 +2501,15 @@ impl Scene {
     pub fn mesh_click_hit(
         &self,
         cursor: iced::Point,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
     ) -> Option<Handle> {
         let iter = self
             .meshes
             .iter()
             .filter_map(|(h, set)| set.lods.first().map(|m| (*h, m)));
-        pick::hit_test::mesh_click_hit(cursor, iter, view_proj, bounds)
+        pick::hit_test::mesh_click_hit(cursor, iter, view_rot, eye, bounds)
     }
 
     /// True when any handle resolves to an ACIS volume entity (3D solid /
@@ -2532,14 +2533,15 @@ impl Scene {
         a: iced::Point,
         b: iced::Point,
         crossing: bool,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
     ) -> Vec<Handle> {
         let iter = self
             .meshes
             .iter()
             .filter_map(|(h, set)| set.lods.first().map(|m| (*h, m)));
-        pick::hit_test::mesh_box_hit(a, b, crossing, iter, view_proj, bounds)
+        pick::hit_test::mesh_box_hit(a, b, crossing, iter, view_rot, eye, bounds)
     }
 
     /// Top-level solid handles caught by a lasso polygon.
@@ -2547,14 +2549,15 @@ impl Scene {
         &self,
         poly: &[iced::Point],
         crossing: bool,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
     ) -> Vec<Handle> {
         let iter = self
             .meshes
             .iter()
             .filter_map(|(h, set)| set.lods.first().map(|m| (*h, m)));
-        pick::hit_test::mesh_poly_hit(poly, crossing, iter, view_proj, bounds)
+        pick::hit_test::mesh_poly_hit(poly, crossing, iter, view_rot, eye, bounds)
     }
 
     /// Front-most solid under the cursor across BOTH top-level solid meshes
@@ -2565,7 +2568,8 @@ impl Scene {
     pub fn solid_click_hit(
         &self,
         cursor: iced::Point,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
     ) -> Option<Handle> {
         // Block-internal instances must be owned (transformed copies); keep
@@ -2597,7 +2601,7 @@ impl Scene {
             .iter()
             .filter_map(|(h, set)| set.lods.first().map(|m| (*h, m)));
         let blk = block_owned.iter().map(|(h, m)| (*h, m));
-        pick::hit_test::mesh_click_hit(cursor, top.chain(blk), view_proj, bounds)
+        pick::hit_test::mesh_click_hit(cursor, top.chain(blk), view_rot, eye, bounds)
     }
 
     /// Parent INSERT handles whose block-internal solid meshes fall in a
@@ -2609,7 +2613,8 @@ impl Scene {
         a: iced::Point,
         b: iced::Point,
         crossing: bool,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
     ) -> Vec<Handle> {
         if self.block_meshes.is_empty() {
@@ -2635,7 +2640,8 @@ impl Scene {
                         b,
                         crossing,
                         std::iter::once((ins.common.handle, m)),
-                        view_proj,
+                        view_rot,
+                        eye,
                         bounds,
                     )
                     .is_empty()
@@ -2653,7 +2659,8 @@ impl Scene {
         &self,
         poly: &[iced::Point],
         crossing: bool,
-        view_proj: glam::Mat4,
+        view_rot: glam::Mat4,
+        eye: glam::DVec3,
         bounds: iced::Rectangle,
     ) -> Vec<Handle> {
         if self.block_meshes.is_empty() {
@@ -2678,7 +2685,8 @@ impl Scene {
                         poly,
                         crossing,
                         std::iter::once((ins.common.handle, m)),
-                        view_proj,
+                        view_rot,
+                        eye,
                         bounds,
                     )
                     .is_empty()
