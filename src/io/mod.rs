@@ -239,9 +239,11 @@ fn resolve_image_file(raw: &str, base_dir: Option<&Path>) -> Option<String> {
 
 // ── Directory listing (used by the custom Save As dialog) ────────────────
 
-/// Sentinel path standing in for the Windows "This PC" drives root — the
-/// pseudo-folder above every drive letter, whose children are the volumes.
-/// A real filesystem path is never empty, so an empty path is a safe marker.
+/// Sentinel path standing in for the volumes root — the pseudo-folder above
+/// every drive/volume, whose children are the mounted volumes. On Windows this
+/// is "This PC" (above the drive letters); on macOS/Linux it is "Computer"
+/// (above `/` and the removable mounts). A real filesystem path is never empty,
+/// so an empty path is a safe marker on every platform.
 pub fn drives_root() -> PathBuf {
     PathBuf::new()
 }
@@ -251,51 +253,116 @@ pub fn is_drives_root(p: &Path) -> bool {
     p.as_os_str().is_empty()
 }
 
+/// Human label for the drives-root, matching each platform's file manager.
+pub fn drives_root_label() -> &'static str {
+    #[cfg(windows)]
+    {
+        "This PC"
+    }
+    #[cfg(not(windows))]
+    {
+        "Computer"
+    }
+}
+
 /// The folder one level above `dir`, or `None` if already at the top.
 ///
-/// On Windows the chain reaches past a drive root into the drives list, so the
-/// Save As dialog can switch volumes: `…\sub` → `C:\` → This PC → `None`.
-/// Without this, `Path::parent()` returns `None` at `C:\` and navigation
-/// dead-ends on the starting drive (issue #170).
+/// The chain reaches past a filesystem root into the volumes list, so the Save
+/// As dialog can switch volumes on every platform:
+/// `…\sub` → `C:\` → This PC → `None` (Windows), or
+/// `/home/me` → `/home` → `/` → Computer → `None` (macOS/Linux).
+/// Without this, `Path::parent()` returns `None` at the root and navigation
+/// dead-ends on the starting volume (issue #170).
 pub fn parent_folder(dir: &Path) -> Option<PathBuf> {
     if is_drives_root(dir) {
         return None; // already at the top
     }
-    if let Some(parent) = dir.parent() {
-        return Some(parent.to_path_buf());
-    }
-    // No parent: we're at a filesystem root (e.g. `C:\`).
-    #[cfg(windows)]
-    {
-        Some(drives_root())
-    }
-    #[cfg(not(windows))]
-    {
-        None
+    match dir.parent() {
+        // A real parent exists (and is not the empty sentinel).
+        Some(parent) if !parent.as_os_str().is_empty() => Some(parent.to_path_buf()),
+        // No real parent: we're at a filesystem root (`C:\` or `/`) — step up
+        // into the volumes list rather than dead-ending.
+        _ => Some(drives_root()),
     }
 }
 
-/// Enumerate the accessible Windows volumes as directory entries.
-/// Probes `A:\`–`Z:\` by stat rather than calling into the Win32 API, so it
-/// needs no extra dependency. Drives with no inserted media are skipped.
-#[cfg(windows)]
+/// Enumerate the accessible volumes as directory entries.
+///
+/// Windows probes `A:\`–`Z:\` by stat (no Win32 binding, no extra dependency);
+/// drives with no inserted media fail the stat and are skipped. macOS lists `/`
+/// plus the mounts under `/Volumes`. Linux lists `/` plus removable mounts under
+/// the usual desktop locations. Other Unix falls back to just `/`.
 fn available_drives() -> Vec<(String, bool, PathBuf)> {
-    let mut out: Vec<(String, bool, PathBuf)> = Vec::new();
-    for letter in b'A'..=b'Z' {
-        let root = format!("{}:\\", letter as char);
-        let path = PathBuf::from(&root);
-        if path.is_dir() {
-            out.push((root, true, path));
+    #[cfg(windows)]
+    {
+        let mut out: Vec<(String, bool, PathBuf)> = Vec::new();
+        for letter in b'A'..=b'Z' {
+            let root = format!("{}:\\", letter as char);
+            let path = PathBuf::from(&root);
+            if path.is_dir() {
+                out.push((root, true, path));
+            }
         }
+        out
     }
-    out
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut out: Vec<(String, bool, PathBuf)> = vec![("/".to_string(), true, PathBuf::from("/"))];
+        if let Ok(rd) = std::fs::read_dir("/Volumes") {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    out.push((
+                        entry.file_name().to_string_lossy().into_owned(),
+                        true,
+                        path,
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut out: Vec<(String, bool, PathBuf)> = vec![("/".to_string(), true, PathBuf::from("/"))];
+        let user = std::env::var("USER").unwrap_or_default();
+        // Per-user removable mounts first (udisks2 / older udisks), then /mnt.
+        let bases = [
+            format!("/run/media/{user}"),
+            format!("/media/{user}"),
+            "/mnt".to_string(),
+        ];
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        for base in bases {
+            if let Ok(rd) = std::fs::read_dir(&base) {
+                for entry in rd.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() && seen.insert(path.clone()) {
+                        out.push((
+                            entry.file_name().to_string_lossy().into_owned(),
+                            true,
+                            path,
+                        ));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        vec![("/".to_string(), true, PathBuf::from("/"))]
+    }
 }
 
 /// Read `dir` and return sorted entries: `(display_name, is_dir, full_path)`.
 /// Directories come first, then files.  Hidden entries (`.`) are skipped.
 pub fn read_dir_entries(dir: &std::path::Path) -> Vec<(String, bool, PathBuf)> {
-    // Windows "This PC": list the available volumes instead of reading a dir.
-    #[cfg(windows)]
+    // Volumes root ("This PC" / "Computer"): list the mounted volumes instead
+    // of reading a directory.
     if is_drives_root(dir) {
         return available_drives();
     }

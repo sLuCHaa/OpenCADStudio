@@ -3472,7 +3472,7 @@ fn save_as_dialog_window<'a>(
 
     // ── Path bar ─────────────────────────────────────────────────────────
     let path_str = if crate::io::is_drives_root(folder) {
-        "This PC".to_string()
+        crate::io::drives_root_label().to_string()
     } else {
         folder.to_string_lossy().into_owned()
     };
