@@ -74,12 +74,22 @@ pub fn canonical_family_name(family: &str) -> Option<String> {
         }
     }
     
-    // 4. Try matching prefix/subset case-insensitively
-    if let Some(matched) = fonts().families.iter().find(|&f| {
-        let f_low = f.to_lowercase();
-        f_low.starts_with(&family_lower) || family_lower.starts_with(&f_low)
-    }) {
-        return Some(matched.clone());
+    // 4. Try matching prefix/subset case-insensitively. Require at least 3
+    //    chars so a 1–2 letter request can't grab an arbitrary family by the
+    //    first iteration order. Iterating sorted keeps the pick deterministic.
+    if family_lower.len() >= 3 {
+        let mut candidates: Vec<&String> = fonts()
+            .families
+            .iter()
+            .filter(|&f| {
+                let f_low = f.to_lowercase();
+                f_low.starts_with(&family_lower) || family_lower.starts_with(&f_low)
+            })
+            .collect();
+        candidates.sort();
+        if let Some(matched) = candidates.first() {
+            return Some((*matched).clone());
+        }
     }
 
     None

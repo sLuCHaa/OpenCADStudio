@@ -51,11 +51,7 @@ pub fn resolve_text_style(style_name: &str, document: &CadDocument) -> ResolvedT
     }
 
     ResolvedTextStyle {
-        font_name: {
-            eprintln!("[resolve_text_style] style={:?} font_file={:?} true_type_font={:?} → font_name={:?}",
-                style.map(|s| &s.name), style.map(|s| &s.font_file), style.map(|s| &s.true_type_font), &font_name);
-            font_name
-        },
+        font_name,
         width_factor: style.map(|s| s.width_factor as f32).unwrap_or(1.0),
         oblique_angle: style.map(|s| s.oblique_angle as f32).unwrap_or(0.0),
         is_backward: style.map(|s| s.is_backward()).unwrap_or(false),

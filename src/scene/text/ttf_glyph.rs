@@ -23,7 +23,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use lyon_tessellation::math::point;
 use lyon_tessellation::path::Path;
-use lyon_tessellation::{FillTessellator, FillOptions, BuffersBuilder, VertexBuffers, FillVertex};
+use lyon_tessellation::{
+    BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, VertexBuffers,
+};
 
 /// Bézier flattening step counts. Outlines are small on screen most of the
 /// time; these are a fixed budget that keeps curves smooth without exploding
@@ -206,14 +208,20 @@ fn triangulate_contours(contours: &[Vec<[f32; 2]>]) -> Vec<[f32; 2]> {
 
     let mut geometry: VertexBuffers<[f32; 2], u32> = VertexBuffers::new();
     let mut tessellator = FillTessellator::new();
-    if let Err(e) = tessellator.tessellate_path(
-        &path,
-        &FillOptions::default(),
-        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-            vertex.position().to_array()
-        }),
-    ) {
-        eprintln!("[ttf_glyph] Tessellation error: {:?}", e);
+    // TrueType outlines use the nonzero winding rule; lyon's default even-odd
+    // rule mis-fills glyphs whose contours overlap. On a tessellation failure
+    // the glyph falls back to an empty fill silently — per-glyph logging would
+    // otherwise spam stderr once per character for a malformed font.
+    if tessellator
+        .tessellate_path(
+            &path,
+            &FillOptions::default().with_fill_rule(FillRule::NonZero),
+            &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+                vertex.position().to_array()
+            }),
+        )
+        .is_err()
+    {
         return Vec::new();
     }
 
