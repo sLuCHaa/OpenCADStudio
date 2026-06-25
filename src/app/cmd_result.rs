@@ -567,6 +567,15 @@ impl OpenCADStudio {
                 self.restore_pre_cmd_tangent();
                 let _ = self.dispatch_command(&cmd);
             }
+            CmdResult::Dispatch(cmd) => {
+                // End this interactive front-end, then run the assembled command
+                // through the normal dispatcher. Selection is left untouched.
+                self.tabs[i].active_cmd = None;
+                self.tabs[i].snap_result = None;
+                self.tabs[i].scene.clear_preview_wire();
+                self.restore_pre_cmd_tangent();
+                let _ = self.dispatch_command(&cmd);
+            }
             CmdResult::MatchEntityLayer { dest, src } => {
                 self.tabs[i].active_cmd = None;
                 self.tabs[i].snap_result = None;

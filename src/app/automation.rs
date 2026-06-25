@@ -566,6 +566,27 @@ mod tests {
     }
 
     #[test]
+    fn ucs_interactive_inline_args() {
+        // `UCS Z 90` must drive the interactive UCS command step-by-step (option
+        // "Z" then value "90") and rotate the active UCS 90° about Z. (#169)
+        let mut app = OpenCADStudio::new_for_test();
+        app.automation_op(r#"{"op":"new"}"#);
+        app.automation_op(r#"{"op":"run","cmd":"UCS Z 90"}"#);
+        let i = app.active_tab;
+        let ucs = app.tabs[i]
+            .active_ucs
+            .as_ref()
+            .expect("UCS Z 90 should set an active UCS");
+        // 90° about Z sends the X axis (1,0,0) → (0,1,0).
+        assert!(
+            ucs.x_axis.x.abs() < 1e-6 && (ucs.x_axis.y - 1.0).abs() < 1e-6,
+            "x_axis after UCS Z 90 = ({}, {})",
+            ucs.x_axis.x,
+            ucs.x_axis.y
+        );
+    }
+
+    #[test]
     fn save_then_open_round_trips() {
         let mut app = OpenCADStudio::new_for_test();
         let path = std::env::temp_dir().join("ocs_automation_test.dxf");

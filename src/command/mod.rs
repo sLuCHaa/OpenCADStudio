@@ -135,6 +135,12 @@ pub enum CmdResult {
     /// End the selection-gather phase and re-dispatch the named command
     /// with the gathered handles installed as the active scene selection.
     Relaunch(String, Vec<Handle>),
+    /// End the command and dispatch the given command string. Used by an
+    /// interactive front-end that gathered its arguments step-by-step and
+    /// delegates execution to an existing inline command handler (e.g. UCS
+    /// collecting an option + value, then running `UCS Z 90`). Unlike
+    /// `Relaunch` it does not touch the selection.
+    Dispatch(String),
     /// Move `dest` entities to the layer of the `src` entity; end command.
     MatchEntityLayer { dest: Vec<Handle>, src: Handle },
     /// Copy all visual properties (layer/color/linetype/lineweight) from `src` to `dest`; end command.

@@ -3618,8 +3618,18 @@ impl OpenCADStudio {
                 }
             }
 
-            // ── UCS management ───────────────────────────────────────────
-            cmd if cmd == "UCS" || cmd.starts_with("UCS ") => {
+            // Bare UCS → interactive front-end (option then value as steps), so
+            // `UCS Z 90` is typable in the command line and works headlessly.
+            // The front-end delegates back to the inline handler below. (#169)
+            "UCS" => {
+                use crate::modules::view::ucs_cmd::UcsCommand;
+                let cmd_obj = UcsCommand::new();
+                self.command_line.push_info(&cmd_obj.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(cmd_obj));
+            }
+
+            // ── UCS management (inline `UCS <option> …`) ─────────────────────
+            cmd if cmd.starts_with("UCS ") => {
                 use super::helpers::{ucs_rotated_z, ucs_to_wcs, ucs_z_axis};
                 use acadrust::tables::Ucs;
                 use acadrust::types::Vector3;
