@@ -372,10 +372,33 @@ impl OpenCADStudio {
             let _ = self.dispatch_command(cmd);
             return;
         }
+        // Plugin commands parse their own inline arguments from the whole line
+        // (e.g. `HC_PIPE 2B 2C 1.25 0.013`), so offer the full command to plugin
+        // dispatch first. A built-in interactive tool matches only its bare name
+        // (`LINE`), so the full line is not a plugin command and falls through to
+        // the first-word + fed-tokens path below. (#162)
+        if crate::plugin::try_dispatch(self, i, cmd) {
+            // The plugin either committed immediately (inline args consumed) or
+            // installed an interactive command — feed any remaining tokens and
+            // finish it on Enter, as for a built-in tool.
+            self.finish_headless_interactive(&tokens);
+            return;
+        }
         let _ = self.dispatch_command(tokens[0]);
         if self.tabs[i].active_cmd.is_none() {
             // Not an interactive tool — an inline-argument command.
             let _ = self.dispatch_command(cmd);
+            return;
+        }
+        self.finish_headless_interactive(&tokens);
+    }
+
+    /// Feed `tokens[1..]` to the active interactive command as points / option
+    /// keywords, then terminate it as if Enter were pressed (LINE / PLINE finish
+    /// on Enter). No-op when no command is active.
+    fn finish_headless_interactive(&mut self, tokens: &[&str]) {
+        let i = self.active_tab;
+        if self.tabs[i].active_cmd.is_none() {
             return;
         }
         self.last_point = None;
@@ -386,17 +409,15 @@ impl OpenCADStudio {
             self.feed_active_cmd(tok);
         }
         // Terminate a still-open command (LINE / PLINE finish on Enter).
-        if self.tabs[i].active_cmd.is_some() {
-            if let Some(r) = self.tabs[i].active_cmd.as_mut().map(|c| c.on_enter()) {
-                let _ = self.apply_cmd_result(r);
-            }
-        }
+        let _ = self.feed_command(crate::command::StepInput::Enter);
     }
 
-    /// Feed one token to the active command. When the command is picking an
-    /// existing entity, the token is a hex handle; otherwise a coordinate point
-    /// or an option keyword.
+    /// Classify one headless token into a [`StepInput`] and route it through the
+    /// shared [`OpenCADStudio::feed_command`]. When the command is picking an
+    /// existing entity the token is a hex handle; otherwise it is a coordinate
+    /// point or an option keyword / value.
     fn feed_active_cmd(&mut self, token: &str) {
+        use crate::command::StepInput;
         let i = self.active_tab;
         // Object-pick step: the token is a handle (as returned by `query`).
         if self.tabs[i]
@@ -419,13 +440,7 @@ impl OpenCADStudio {
                         )
                     })
                     .unwrap_or(glam::Vec3::ZERO);
-                if let Some(r) = self.tabs[i]
-                    .active_cmd
-                    .as_mut()
-                    .map(|c| c.on_entity_pick(handle, pt.as_dvec3()))
-                {
-                    let _ = self.apply_cmd_result(r);
-                }
+                let _ = self.feed_command(StepInput::EntityPick(handle, pt.as_dvec3()));
             }
             return;
         }
@@ -436,15 +451,9 @@ impl OpenCADStudio {
                 }
             }
             self.last_point = Some(pt);
-            if let Some(r) = self.tabs[i].active_cmd.as_mut().map(|c| c.on_point(pt.as_dvec3())) {
-                let _ = self.apply_cmd_result(r);
-            }
-        } else if let Some(r) = self.tabs[i]
-            .active_cmd
-            .as_mut()
-            .and_then(|c| c.on_text_input(token))
-        {
-            let _ = self.apply_cmd_result(r);
+            let _ = self.feed_command(StepInput::Point(pt.as_dvec3()));
+        } else {
+            let _ = self.feed_command(StepInput::Text(token.to_string()));
         }
     }
 

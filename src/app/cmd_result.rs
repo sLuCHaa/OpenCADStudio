@@ -1,9 +1,38 @@
 use super::{Message, OpenCADStudio};
-use crate::command::CmdResult;
+use crate::command::{CmdResult, StepInput};
 use acadrust::Handle;
 use iced::Task;
 
 impl OpenCADStudio {
+    /// Drive the active command's step machine with one [`StepInput`], then
+    /// apply the result. This is the single entry point every input source
+    /// (command line, headless, dynamic input, plugin API, viewport) funnels
+    /// through, so the routing from input → `on_*` method → `apply_cmd_result`
+    /// lives in exactly one place. No-op when no command is active.
+    pub(super) fn feed_command(&mut self, input: StepInput) -> Task<Message> {
+        let i = self.active_tab;
+        let result: Option<CmdResult> = {
+            let Some(cmd) = self.tabs[i].active_cmd.as_mut() else {
+                return Task::none();
+            };
+            match input {
+                StepInput::Point(p) => Some(cmd.on_point(p)),
+                StepInput::Text(s) => cmd.on_text_input(&s),
+                StepInput::EntityPick(h, p) => Some(cmd.on_entity_pick(h, p)),
+                StepInput::StructurePick(h, p) => Some(cmd.on_structure_pick(h, p)),
+                StepInput::SelectionComplete(hs) => Some(cmd.on_selection_complete(hs)),
+                StepInput::Tangent(o, p) => Some(cmd.on_tangent_point(o, p)),
+                StepInput::EditorClosed(c) => Some(cmd.on_editor_closed(c)),
+                StepInput::Enter => Some(cmd.on_enter()),
+                StepInput::Escape => Some(cmd.on_escape()),
+            }
+        };
+        match result {
+            Some(r) => self.apply_cmd_result(r),
+            None => Task::none(),
+        }
+    }
+
     pub(super) fn apply_cmd_result(&mut self, result: CmdResult) -> Task<Message> {
         let i = self.active_tab;
         match result {

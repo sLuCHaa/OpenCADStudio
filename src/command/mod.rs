@@ -46,6 +46,39 @@ pub enum TangentObject {
     Circle { center: DVec3, radius: f64 },
 }
 
+/// One unit of input to the active command's step machine.
+///
+/// Every input source — the GUI command line, the headless automation feeder,
+/// dynamic input, the plugin API, and the viewport (clicks / picks / selection
+/// / tangent) — translates its raw input into one of these and routes it
+/// through `OpenCADStudio::feed_command`, so a single place drives the command
+/// regardless of where the step came from.
+///
+/// Variants are wired up incrementally as each source is migrated onto
+/// `feed_command`; `#[allow(dead_code)]` covers those not yet constructed.
+#[allow(dead_code)]
+pub enum StepInput {
+    /// A coordinate (`on_point`).
+    Point(DVec3),
+    /// A typed token: keyword, option letter, distance, or value
+    /// (`on_text_input`).
+    Text(String),
+    /// An object pick (`on_entity_pick`).
+    EntityPick(Handle, DVec3),
+    /// A sub-structure pick — vertex / edge / face (`on_structure_pick`).
+    StructurePick(Handle, DVec3),
+    /// A completed selection set (`on_selection_complete`).
+    SelectionComplete(Vec<Handle>),
+    /// A tangent-snap target (`on_tangent_point`).
+    Tangent(TangentObject, DVec3),
+    /// The text / MText editor closed, with its commit flag (`on_editor_closed`).
+    EditorClosed(bool),
+    /// Advance / finish the current step — Enter, or Space-as-Enter (`on_enter`).
+    Enter,
+    /// Cancel the command (`on_escape`).
+    Escape,
+}
+
 // ── Result token ──────────────────────────────────────────────────────────
 
 /// Returned by every `CadCommand` method to tell main.rs what to do.
