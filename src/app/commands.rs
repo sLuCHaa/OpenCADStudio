@@ -4944,7 +4944,13 @@ impl OpenCADStudio {
                     }
                 }
             }
-            cmd if cmd == "LTSCALE" || cmd.starts_with("LTSCALE ") => {
+            "LTSCALE" => {
+                use crate::command::ValuePromptCommand;
+                let c = ValuePromptCommand::new("LTSCALE", "LTSCALE  new global line-type scale:");
+                self.command_line.push_info(&c.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(c));
+            }
+            cmd if cmd.starts_with("LTSCALE ") => {
                 let val_str = cmd.trim_start_matches("LTSCALE").trim();
                 if val_str.is_empty() {
                     let v = self.tabs[i].scene.document.header.linetype_scale;
@@ -4964,7 +4970,16 @@ impl OpenCADStudio {
                     self.command_line.push_error("Usage: LTSCALE [value]");
                 }
             }
-            cmd if cmd == "PDMODE" || cmd.starts_with("PDMODE ") => {
+            "PDMODE" => {
+                use crate::command::ValuePromptCommand;
+                let c = ValuePromptCommand::new(
+                    "PDMODE",
+                    "PDMODE  new value [0=dot 1=none 2=+ 3=x 4=tick; +32 circle +64 square]:",
+                );
+                self.command_line.push_info(&c.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(c));
+            }
+            cmd if cmd.starts_with("PDMODE ") => {
                 let val_str = cmd.trim_start_matches("PDMODE").trim();
                 if val_str.is_empty() {
                     let v = self.tabs[i].scene.document.header.point_display_mode;
@@ -4999,7 +5014,16 @@ impl OpenCADStudio {
                         .push_error("Requires 0 OR 1 OR MULTIPLE OR SINGLE");
                 }
             }
-            cmd if cmd == "PDSIZE" || cmd.starts_with("PDSIZE ") => {
+            "PDSIZE" => {
+                use crate::command::ValuePromptCommand;
+                let c = ValuePromptCommand::new(
+                    "PDSIZE",
+                    "PDSIZE  new point size (0 = 5% of viewport, <0 = absolute):",
+                );
+                self.command_line.push_info(&c.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(c));
+            }
+            cmd if cmd.starts_with("PDSIZE ") => {
                 let val_str = cmd.trim_start_matches("PDSIZE").trim();
                 if val_str.is_empty() {
                     let v = self.tabs[i].scene.document.header.point_display_size;
@@ -5057,7 +5081,16 @@ impl OpenCADStudio {
                     }
                 }
             }
-            cmd if cmd == "CELTSCALE" || cmd.starts_with("CELTSCALE ") => {
+            "CELTSCALE" => {
+                use crate::command::ValuePromptCommand;
+                let c = ValuePromptCommand::new(
+                    "CELTSCALE",
+                    "CELTSCALE  new current-object line-type scale:",
+                );
+                self.command_line.push_info(&c.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(c));
+            }
+            cmd if cmd.starts_with("CELTSCALE ") => {
                 let val_str = cmd.trim_start_matches("CELTSCALE").trim();
                 if val_str.is_empty() {
                     let v = self.tabs[i]

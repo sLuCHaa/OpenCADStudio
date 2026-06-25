@@ -498,6 +498,27 @@ mod tests {
     }
 
     #[test]
+    fn value_prompt_commands_inline_args() {
+        // A single-value setting command entered with its value on one line
+        // drives the interactive front-end (start + value step) and applies via
+        // the inline handler. (F4)
+        let mut app = OpenCADStudio::new_for_test();
+        app.automation_op(r#"{"op":"new"}"#);
+        app.automation_op(r#"{"op":"run","cmd":"PDMODE 3"}"#);
+        app.automation_op(r#"{"op":"run","cmd":"LTSCALE 2.5"}"#);
+        let i = app.active_tab;
+        let h = &app.tabs[i].scene.document.header;
+        assert_eq!(h.point_display_mode, 3, "PDMODE 3 should set point mode");
+        assert!(
+            (h.linetype_scale - 2.5).abs() < 1e-9,
+            "LTSCALE 2.5 should set scale, got {}",
+            h.linetype_scale
+        );
+        // No command should be left dangling.
+        assert!(app.tabs[i].active_cmd.is_none(), "command must have finished");
+    }
+
+    #[test]
     fn save_then_open_round_trips() {
         let mut app = OpenCADStudio::new_for_test();
         let path = std::env::temp_dir().join("ocs_automation_test.dxf");

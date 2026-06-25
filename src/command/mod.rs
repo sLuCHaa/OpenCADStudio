@@ -79,6 +79,57 @@ pub enum StepInput {
     Escape,
 }
 
+/// Generic interactive front-end for a single-value setting command (PDMODE,
+/// PDSIZE, LTSCALE, CELTSCALE, …). Bare `<name>` enters this command, which
+/// prompts for one value and then delegates to the existing inline
+/// `<name> <value>` handler via [`CmdResult::Dispatch`]. A bare Enter delegates
+/// to `<name> ` (trailing space) so the inline handler reports the current
+/// value. Keeps the value math + persistence in the one inline place while
+/// making the command prompt for its argument step-by-step.
+pub struct ValuePromptCommand {
+    name: &'static str,
+    prompt: &'static str,
+}
+
+impl ValuePromptCommand {
+    pub fn new(name: &'static str, prompt: &'static str) -> Self {
+        Self { name, prompt }
+    }
+}
+
+impl CadCommand for ValuePromptCommand {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn prompt(&self) -> String {
+        self.prompt.to_string()
+    }
+
+    fn wants_text_input(&self) -> bool {
+        true
+    }
+
+    fn on_text_input(&mut self, text: &str) -> Option<CmdResult> {
+        let t = text.trim();
+        if t.is_empty() {
+            Some(CmdResult::Dispatch(format!("{} ", self.name)))
+        } else {
+            Some(CmdResult::Dispatch(format!("{} {t}", self.name)))
+        }
+    }
+
+    fn on_point(&mut self, _pt: DVec3) -> CmdResult {
+        // A value command takes no point; ignore stray clicks, keep prompting.
+        CmdResult::NeedPoint
+    }
+
+    fn on_enter(&mut self) -> CmdResult {
+        // Bare Enter → report the current value via the inline handler.
+        CmdResult::Dispatch(format!("{} ", self.name))
+    }
+}
+
 // ── Result token ──────────────────────────────────────────────────────────
 
 /// Returned by every `CadCommand` method to tell main.rs what to do.
