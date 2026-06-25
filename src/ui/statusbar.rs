@@ -1,7 +1,7 @@
 //! Bottom status bar — Model/Layout tabs + OSNAP toggle + status info
 
 use iced::widget::tooltip::Position as TipPos;
-use iced::widget::{button, container, mouse_area, row, text, text_input, tooltip, Row};
+use iced::widget::{button, column, container, mouse_area, row, text, text_input, tooltip, Row};
 use iced::{Background, Border, Color, Element, Length, Theme};
 
 /// Widget id of the inline layout-rename text input, so the rename can grab
@@ -291,9 +291,16 @@ fn customize_btn() -> Element<'static, Message> {
 // ── Tooltip helper ────────────────────────────────────────────────────────
 
 fn tip<'a>(content: Element<'a, Message>, label: &'static str) -> Element<'a, Message> {
+    tip_node(content, text(label).size(11).color(Color::WHITE).into())
+}
+
+/// Like [`tip`] but the tooltip body is any element — used to embed an SVG
+/// glyph (e.g. the dropdown caret) instead of a Unicode character that renders
+/// as tofu on the web. (#138)
+fn tip_node<'a>(content: Element<'a, Message>, body: Element<'a, Message>) -> Element<'a, Message> {
     tooltip(
         content,
-        container(text(label).size(11).color(Color::WHITE))
+        container(body)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(Color {
                     r: 0.13,
@@ -519,7 +526,20 @@ fn osnap_btn(active: bool, snap_enabled: bool, open: bool) -> Element<'static, M
 
     row![
         tip(left.into(), "Object Snap: toggle on/off\nF3"),
-        tip(right.into(), "Object Snap settings\nClick ▾"),
+        tip_node(
+            right.into(),
+            column![
+                text("Object Snap settings").size(11).color(Color::WHITE),
+                row![
+                    text("Click").size(11).color(Color::WHITE),
+                    crate::ui::icons::arrow_down(9.0, Color::WHITE),
+                    text("to open the list").size(11).color(Color::WHITE),
+                ]
+                .spacing(3)
+                .align_y(iced::Center),
+            ]
+            .into(),
+        ),
     ]
     .spacing(0)
     .into()
