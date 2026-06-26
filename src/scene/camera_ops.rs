@@ -1,4 +1,6 @@
-// Auto-split from scene/mod.rs. Pure text-move; behaviour unchanged.
+// Camera / view operations on `Scene`: zoom, fit-all, named-view restore,
+// camera<->document sync, and per-tile grid/snap. (The actual screen-space
+// hit-testing lives in `scene::pick::hit_test`.)
 use super::*;
 
 impl Scene {

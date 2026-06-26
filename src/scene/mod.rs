@@ -17,7 +17,7 @@ pub mod view;
 // blocks and/or free functions). Pure text-move from the original mod.rs.
 mod entity;
 mod group_layer;
-mod hittest;
+mod camera_ops;
 mod layout;
 mod modify;
 mod mspace;
@@ -53,7 +53,7 @@ pub use pipeline::viewcube::{
     hit_test, hit_test_cardinal, hover_id, CubeRegion, NudgeDir, VIEWCUBE_DRAW_PX, VIEWCUBE_PAD,
     VIEWCUBE_PX, VIEWCUBE_REGION_PX,
 };
-pub use pick::selection::SelectionState;
+pub use pick::selection_state::SelectionState;
 pub use model::wire_model::WireModel;
 
 use crate::command::EntityTransform;
