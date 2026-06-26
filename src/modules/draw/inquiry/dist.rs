@@ -1,12 +1,15 @@
 // DIST command — measure distance and angle between two picked points.
 
-use glam::{DVec3, Vec3};
+use glam::DVec3;
 
 use crate::command::{CadCommand, CmdResult};
 use crate::scene::model::wire_model::WireModel;
 
 pub struct DistCommand {
-    first: Option<Vec3>,
+    // Keep the picked point in full f64 precision. Downcasting to f32 here
+    // loses ~0.03–0.06 units at survey-scale coordinates (e.g. eastings near
+    // 5e5), which made snapped-endpoint measurements read off by that much.
+    first: Option<DVec3>,
 }
 
 impl DistCommand {
@@ -28,7 +31,7 @@ impl CadCommand for DistCommand {
         }
     }
 
-    fn on_point(&mut self, pt: DVec3) -> CmdResult { let pt = pt.as_vec3();
+    fn on_point(&mut self, pt: DVec3) -> CmdResult {
         if let Some(p1) = self.first {
             let delta = pt - p1;
             let dist = delta.length();
@@ -56,11 +59,15 @@ impl CadCommand for DistCommand {
         CmdResult::Cancel
     }
 
-    fn on_mouse_move(&mut self, pt: DVec3) -> Option<WireModel> { let pt = pt.as_vec3();
+    fn on_mouse_move(&mut self, pt: DVec3) -> Option<WireModel> {
         let p1 = self.first?;
+        // The preview wire is purely visual, so f32 vertices are fine here.
         Some(WireModel {
             name: "dist_preview".into(),
-            points: vec![[p1.x, p1.y, p1.z], [pt.x, pt.y, pt.z]],
+            points: vec![
+                [p1.x as f32, p1.y as f32, p1.z as f32],
+                [pt.x as f32, pt.y as f32, pt.z as f32],
+            ],
             points_low: Vec::new(),
             color: WireModel::CYAN,
             selected: false,
