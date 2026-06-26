@@ -4843,7 +4843,7 @@ impl Scene {
             // Per-entity world_offset selection so paper-layout content
             // viewports still see model-block wipeouts at the right local
             // coordinates (same rationale as hatches).
-            let boundary = Self::wipeout_boundary_2d(wo);
+            let (fill_origin, boundary) = Self::wipeout_boundary_2d(wo);
             if boundary.len() >= 3 {
                 let mut fill_color = bg_color;
                 if self.selected.contains(&wo.common.handle) {
@@ -4856,7 +4856,7 @@ impl Scene {
                     color: fill_color,
                     angle_offset: 0.0,
                     scale: 1.0,
-                    world_origin: [0.0; 2],
+                    world_origin: fill_origin,
                     vp_scissor: None,
                     draw_depth: 0.0,
                 });
@@ -4866,24 +4866,29 @@ impl Scene {
     }
 
     /// Compute the 2D (XY) boundary polygon for a Wipeout entity.
+    /// Wipeout fill boundary as small f32 offsets from the returned `world_origin`
+    /// (the insertion point, kept in f64). Building it in absolute WCS f32
+    /// collapsed the boundary into squares at UTM-scale coordinates; the
+    /// relative-to-eye hatch fill reconstructs `world_origin + offset` precisely.
     fn wipeout_boundary_2d(
         wo: &acadrust::entities::Wipeout,
-    ) -> Vec<[f32; 2]> {
+    ) -> ([f64; 2], Vec<[f32; 2]>) {
         use acadrust::entities::WipeoutClipType;
+
+        let origin = [wo.insertion_point.x, wo.insertion_point.y];
 
         let is_polygon = wo.clipping_enabled
             && wo.clip_boundary_vertices.len() >= 3
             && matches!(wo.clip_type, WipeoutClipType::Polygonal);
 
         if is_polygon {
-            let ox = (wo.insertion_point.x) as f32;
-            let oy = (wo.insertion_point.y) as f32;
             // DXF clip vertices live in image-pixel space, centred on the
             // image (range −size/2 … +size/2). Image-bottom-left → insertion,
             // image-y-axis points DOWN (per the DXF "v_vector points down the
             // image" convention), so map:
             //   x_off = (clip.x + size.x/2) × u_vec
             //   y_off = (size.y/2 − clip.y) × v_vec    ← y flipped
+            // Offsets are relative to `origin` (the insertion point).
             let cx_of = |v: &acadrust::types::Vector2| v.x + wo.size.x * 0.5;
             let cy_of = |v: &acadrust::types::Vector2| wo.size.y * 0.5 - v.y;
             let mut poly: Vec<[f32; 2]> = wo
@@ -4894,7 +4899,7 @@ impl Scene {
                     let cy = cy_of(v);
                     let wx = (wo.u_vector.x * cx + wo.v_vector.x * cy) as f32;
                     let wy = (wo.u_vector.y * cx + wo.v_vector.y * cy) as f32;
-                    [ox + wx, oy + wy]
+                    [wx, wy]
                 })
                 .collect();
             // Close the loop: the GPU `in_polygon` ray-cast walks
@@ -4906,28 +4911,27 @@ impl Scene {
                     poly.push(first);
                 }
             }
-            poly
+            (origin, poly)
         } else {
-            // Rectangular boundary from 4 corners.
-            let ox = (wo.insertion_point.x) as f32;
-            let oy = (wo.insertion_point.y) as f32;
-            let oz = wo.insertion_point.z as f32;
+            // Rectangular boundary from 4 corners, as offsets from `origin`.
             let ux = (wo.u_vector.x * wo.size.x) as f32;
             let uy = (wo.u_vector.y * wo.size.x) as f32;
             let vx = (wo.v_vector.x * wo.size.y) as f32;
             let vy = (wo.v_vector.y * wo.size.y) as f32;
-            let _ = oz;
             // Close the loop (repeat corner 0): the GPU `in_polygon` ray-cast
             // walks sequential vertex pairs and never wraps last→first, so an
             // unclosed quad leaves the v3→v0 edge untested and the solid mask
             // bleeds past the boundary — same reason the polygon branch closes.
-            vec![
-                [ox, oy],
-                [ox + ux, oy + uy],
-                [ox + ux + vx, oy + uy + vy],
-                [ox + vx, oy + vy],
-                [ox, oy],
-            ]
+            (
+                origin,
+                vec![
+                    [0.0, 0.0],
+                    [ux, uy],
+                    [ux + vx, uy + vy],
+                    [vx, vy],
+                    [0.0, 0.0],
+                ],
+            )
         }
     }
 
@@ -7885,7 +7889,7 @@ impl Scene {
                 continue;
             }
             // Paper-block wipeouts live in paper coords — no `world_offset`.
-            let boundary = Self::wipeout_boundary_2d(wo);
+            let (fill_origin, boundary) = Self::wipeout_boundary_2d(wo);
             if boundary.len() < 3 {
                 continue;
             }
@@ -7900,7 +7904,7 @@ impl Scene {
                 color: fill_color,
                 angle_offset: 0.0,
                 scale: 1.0,
-                world_origin: [0.0; 2],
+                world_origin: fill_origin,
                 vp_scissor: None,
                 draw_depth: 0.0,
             });
