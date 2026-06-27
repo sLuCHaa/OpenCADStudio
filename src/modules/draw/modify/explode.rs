@@ -343,31 +343,115 @@ fn dim_terminator(
     tip: Vector3,
     dx: f64,
     dy: f64,
-    dimasz: f64,
-    dimtsz: f64,
+    arrow: &crate::scene::convert::tessellate::ArrowKind,
     common: &acadrust::entities::EntityCommon,
 ) -> Vec<EntityType> {
-    if dimtsz > 1e-9 {
-        // 45° oblique tick centred on the tip (architectural style).
-        let c = std::f64::consts::FRAC_1_SQRT_2;
-        let (tx, ty) = ((dx - dy) * c, (dx + dy) * c);
-        return vec![dim_seg(
-            Vector3::new(tip.x - tx * dimtsz, tip.y - ty * dimtsz, tip.z),
-            Vector3::new(tip.x + tx * dimtsz, tip.y + ty * dimtsz, tip.z),
-            common,
-        )];
-    }
-    // Closed filled arrowhead: a triangle from the tip to a base DIMASZ back
-    // along the dim line, half-width ~DIMASZ/6 (the standard arrow proportion).
-    let (bx, by) = (tip.x + dx * dimasz, tip.y + dy * dimasz);
-    let hw = dimasz / 6.0;
+    use crate::scene::convert::tessellate::ArrowKind as A;
+    let (dx, dy) = norm2(dx, dy, 1.0, 0.0);
     let (px, py) = (-dy, dx);
-    let c1 = Vector3::new(bx + px * hw, by + py * hw, tip.z);
-    let c2 = Vector3::new(bx - px * hw, by - py * hw, tip.z);
-    let mut sol = acadrust::entities::Solid::triangle(tip, c1, c2);
-    sol.common = common.clone();
-    sol.common.handle = Handle::NULL;
-    vec![EntityType::Solid(sol)]
+    // Point at `along` (down the dim line from the tip) and `perp` (sideways).
+    let pt = |along: f64, perp: f64| {
+        Vector3::new(tip.x + dx * along + px * perp, tip.y + dy * along + py * perp, tip.z)
+    };
+    let mut out: Vec<EntityType> = Vec::new();
+    let tri = |a: Vector3, b: Vector3, c: Vector3, out: &mut Vec<EntityType>| {
+        let mut s = acadrust::entities::Solid::triangle(a, b, c);
+        s.common = common.clone();
+        s.common.handle = Handle::NULL;
+        out.push(EntityType::Solid(s));
+    };
+    match *arrow {
+        A::None => {}
+        A::Triangle { size, filled, size_mul } => {
+            let size = (size * size_mul) as f64;
+            let hw = size / 6.0;
+            let (l, r) = (pt(size, hw), pt(size, -hw));
+            if filled {
+                tri(tip, l, r, &mut out);
+            } else {
+                out.push(dim_seg(tip, l, common));
+                out.push(dim_seg(l, r, common));
+                out.push(dim_seg(r, tip, common));
+            }
+        }
+        A::Tick { size } => {
+            let s = size as f64;
+            let (ox, oy) = (dx + px, dy + py);
+            let m = (ox * ox + oy * oy).sqrt().max(1e-9);
+            let (ox, oy) = (ox / m * s, oy / m * s);
+            out.push(dim_seg(
+                Vector3::new(tip.x - ox, tip.y - oy, tip.z),
+                Vector3::new(tip.x + ox, tip.y + oy, tip.z),
+                common,
+            ));
+        }
+        A::Open { size, half_angle } => {
+            let size = size as f64;
+            let hw = size * (half_angle as f64).tan();
+            out.push(dim_seg(tip, pt(size, hw), common));
+            out.push(dim_seg(tip, pt(size, -hw), common));
+        }
+        A::Dot { size, filled } => {
+            let r = size as f64 * 0.5;
+            terminator_circle(tip, r, filled, common, &mut out);
+        }
+        A::Origin { size } => {
+            terminator_circle(tip, size as f64 * 0.25, true, common, &mut out);
+            let half = size as f64 * 0.5;
+            out.push(dim_seg(pt(0.0, -half), pt(0.0, half), common));
+        }
+        A::Box_ { size, filled } => {
+            let h = size as f64 * 0.5;
+            let (p1, p2, p3, p4) = (pt(-h, -h), pt(h, -h), pt(h, h), pt(-h, h));
+            out.push(dim_seg(p1, p2, common));
+            out.push(dim_seg(p2, p3, common));
+            out.push(dim_seg(p3, p4, common));
+            out.push(dim_seg(p4, p1, common));
+            if filled {
+                tri(p1, p2, p3, &mut out);
+                tri(p1, p3, p4, &mut out);
+            }
+        }
+        A::Datum { size, filled } => {
+            let half = size as f64 * 0.5;
+            let (ba, bb, apex) = (pt(0.0, half), pt(0.0, -half), pt(size as f64, 0.0));
+            out.push(dim_seg(ba, apex, common));
+            out.push(dim_seg(apex, bb, common));
+            out.push(dim_seg(bb, ba, common));
+            if filled {
+                tri(ba, apex, bb, &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// A dot terminator: a 16-gon ring outline, optionally filled with a triangle fan.
+fn terminator_circle(
+    center: Vector3,
+    r: f64,
+    filled: bool,
+    common: &acadrust::entities::EntityCommon,
+    out: &mut Vec<EntityType>,
+) {
+    const N: usize = 16;
+    let ring: Vec<Vector3> = (0..=N)
+        .map(|i| {
+            let a = i as f64 * std::f64::consts::TAU / N as f64;
+            Vector3::new(center.x + a.cos() * r, center.y + a.sin() * r, center.z)
+        })
+        .collect();
+    for w in ring.windows(2) {
+        out.push(dim_seg(w[0], w[1], common));
+    }
+    if filled {
+        for i in 0..N {
+            let mut s = acadrust::entities::Solid::triangle(center, ring[i], ring[i + 1]);
+            s.common = common.clone();
+            s.common.handle = Handle::NULL;
+            out.push(EntityType::Solid(s));
+        }
+    }
 }
 
 /// Center-mark cross at `center`, arm length |DIMCEN|. Empty when DIMCEN == 0.
@@ -438,15 +522,23 @@ struct DimMetrics {
     dimexe: f64,
     dimtsz: f64,
     dimdle: f64,
+    dimfxl: f64,
+    dimfxlon: bool,
     dimse1: bool,
     dimse2: bool,
     dimsd1: bool,
     dimsd2: bool,
+    dimsoxd: bool,
     dimclrd: i16,
     dimclre: i16,
     dimclrt: i16,
     dimlwd: i16,
     dimlwe: i16,
+    /// Resolved terminator shapes for the first / second end (DIMTSZ tick,
+    /// DIMBLK/DIMBLK1/DIMBLK2 per DIMSAH, else closed-filled), so the bake
+    /// reproduces the style's actual arrow type.
+    arrow1: crate::scene::convert::tessellate::ArrowKind,
+    arrow2: crate::scene::convert::tessellate::ArrowKind,
 }
 
 /// Metrics from the dim's style, mirroring what the live renderer applies, so a
@@ -464,22 +556,48 @@ fn dim_metrics(dim: &Dimension, doc: &CadDocument) -> DimMetrics {
     let scale = style
         .map(|s| if s.dimscale > 1e-6 { s.dimscale } else { 1.0 })
         .unwrap_or(1.0);
+    use crate::scene::convert::tessellate::{arrow_from_block, ArrowKind};
+    let dimasz = style.map(|s| s.dimasz * scale).unwrap_or(0.18 * scale).max(1e-6);
+    let dimtsz = style.map(|s| s.dimtsz * scale).unwrap_or(0.0);
+    let asz = dimasz as f32;
+    // Resolve the terminator shapes exactly like the live render: ticks when
+    // DIMTSZ>0, otherwise the DIMBLK / DIMBLK1+DIMBLK2 (per DIMSAH) arrow blocks,
+    // else closed-filled.
+    let (arrow1, arrow2) = if dimtsz > 1e-9 {
+        let t = ArrowKind::Tick { size: dimtsz as f32 };
+        (t, t)
+    } else if let Some(s) = style {
+        if s.dimsah {
+            (arrow_from_block(doc, s.dimblk1, asz), arrow_from_block(doc, s.dimblk2, asz))
+        } else {
+            let a = arrow_from_block(doc, s.dimblk, asz);
+            (a, a)
+        }
+    } else {
+        let a = ArrowKind::Triangle { size: asz, filled: true, size_mul: 1.0 };
+        (a, a)
+    };
     DimMetrics {
-        dimasz: style.map(|s| s.dimasz * scale).unwrap_or(0.18 * scale).max(1e-6),
+        dimasz,
         dimcen: style.map(|s| s.dimcen * scale).unwrap_or(0.09 * scale),
         dimexo: style.map(|s| s.dimexo * scale).unwrap_or(0.0),
         dimexe: style.map(|s| s.dimexe * scale).unwrap_or(0.0),
-        dimtsz: style.map(|s| s.dimtsz * scale).unwrap_or(0.0),
+        dimtsz,
         dimdle: style.map(|s| s.dimdle * scale).unwrap_or(0.0),
+        dimfxl: style.map(|s| s.dimfxl * scale).unwrap_or(1.0),
+        dimfxlon: style.map(|s| s.dimfxlon).unwrap_or(false),
         dimse1: style.map(|s| s.dimse1).unwrap_or(false),
         dimse2: style.map(|s| s.dimse2).unwrap_or(false),
         dimsd1: style.map(|s| s.dimsd1).unwrap_or(false),
         dimsd2: style.map(|s| s.dimsd2).unwrap_or(false),
+        dimsoxd: style.map(|s| s.dimsoxd).unwrap_or(false),
         dimclrd: style.map(|s| s.dimclrd).unwrap_or(0),
         dimclre: style.map(|s| s.dimclre).unwrap_or(0),
         dimclrt: style.map(|s| s.dimclrt).unwrap_or(0),
         dimlwd: style.map(|s| s.dimlwd).unwrap_or(-2),
         dimlwe: style.map(|s| s.dimlwe).unwrap_or(-2),
+        arrow1,
+        arrow2,
     }
 }
 
@@ -539,8 +657,8 @@ fn angular_block_segs(
         sweep += 2.0 * PI;
     }
     let sgn = if sweep >= 0.0 { 1.0 } else { -1.0 };
-    out.extend(dim_terminator(e1, -a1.sin() * sgn, a1.cos() * sgn, met.dimasz, met.dimtsz, dim_c));
-    out.extend(dim_terminator(e2, a2.sin() * sgn, -a2.cos() * sgn, met.dimasz, met.dimtsz, dim_c));
+    out.extend(dim_terminator(e1, -a1.sin() * sgn, a1.cos() * sgn, &met.arrow1, dim_c));
+    out.extend(dim_terminator(e2, a2.sin() * sgn, -a2.cos() * sgn, &met.arrow2, dim_c));
     out
 }
 
@@ -557,6 +675,40 @@ fn dim_text_anchor(
     } else {
         Vector3::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
     }
+}
+
+/// The (start, end) of a linear/aligned extension line. `origin` is the
+/// measured point, `land` its landing on the dim line, `sign` the perpendicular
+/// direction, `(edx,edy)` the (possibly oblique) extension direction. Normally
+/// the line runs from `origin + DIMEXO` to `land + DIMEXE`; with DIMFXLON it is
+/// a fixed length DIMFXL back from the dim line instead. DIM-FXL.
+fn ext_endpoints(
+    origin: Vector3,
+    land: Vector3,
+    sign: f64,
+    edx: f64,
+    edy: f64,
+    met: &DimMetrics,
+) -> (Vector3, Vector3) {
+    let end = Vector3::new(
+        land.x + edx * (sign * met.dimexe),
+        land.y + edy * (sign * met.dimexe),
+        land.z,
+    );
+    let start = if met.dimfxlon {
+        Vector3::new(
+            land.x - edx * (sign * met.dimfxl),
+            land.y - edy * (sign * met.dimfxl),
+            land.z,
+        )
+    } else {
+        Vector3::new(
+            origin.x + edx * (sign * met.dimexo),
+            origin.y + edy * (sign * met.dimexo),
+            origin.z,
+        )
+    };
+    (start, end)
 }
 
 /// Normalise `(dx,dy)`, falling back to `(fx,fy)` when it is ~zero length.
@@ -596,16 +748,32 @@ fn explode_dimension(dim: &Dimension, doc: &CadDocument) -> Vec<EntityType> {
 
     // Dimension line for a linear/aligned dim, between d1 and d2 with the unit
     // direction (ux,uy): DIMDLE overshoot when ticks are used, omitted when both
-    // halves are suppressed. Terminators are always placed at the origins.
+    // halves are suppressed. When the arrows don't fit between the extension
+    // lines (gap < 2·DIMASZ, arrows only) they flip to the outside with short
+    // stubs unless DIMSOXD — matching the live fit logic. DIM-ARROWS-OUTSIDE.
     let push_dim_line = |result: &mut Vec<EntityType>, d1: Vector3, d2: Vector3, ux: f64, uy: f64| {
+        let ticks = met.dimtsz > 1e-9;
         if !(met.dimsd1 && met.dimsd2) {
-            let dle = if met.dimtsz > 1e-9 { met.dimdle } else { 0.0 };
+            let dle = if ticks { met.dimdle } else { 0.0 };
             let a = v3(d1.x - ux * dle, d1.y - uy * dle, d1.z);
             let b = v3(d2.x + ux * dle, d2.y + uy * dle, d2.z);
             result.push(make_seg(&a, &b, &dim_c));
         }
-        result.extend(dim_terminator(d1, ux, uy, met.dimasz, met.dimtsz, &dim_c));
-        result.extend(dim_terminator(d2, -ux, -uy, met.dimasz, met.dimtsz, &dim_c));
+        let gap = ((d2.x - d1.x).powi(2) + (d2.y - d1.y).powi(2)).sqrt();
+        let outside = !ticks && met.dimasz > 1e-6 && gap < 2.0 * met.dimasz;
+        if outside {
+            // Arrow bodies extend outward (tips still at the origins).
+            result.extend(dim_terminator(d1, -ux, -uy, &met.arrow1, &dim_c));
+            result.extend(dim_terminator(d2, ux, uy, &met.arrow2, &dim_c));
+            if !met.dimsoxd {
+                let stub = 2.0 * met.dimasz;
+                result.push(make_seg(&v3(d1.x - ux * stub, d1.y - uy * stub, d1.z), &d1, &dim_c));
+                result.push(make_seg(&d2, &v3(d2.x + ux * stub, d2.y + uy * stub, d2.z), &dim_c));
+            }
+        } else {
+            result.extend(dim_terminator(d1, ux, uy, &met.arrow1, &dim_c));
+            result.extend(dim_terminator(d2, -ux, -uy, &met.arrow2, &dim_c));
+        }
     };
 
     match dim {
@@ -627,10 +795,8 @@ fn explode_dimension(dim: &Dimension, doc: &CadDocument) -> Vec<EntityType> {
             let (es, ec) = d.ext_line_rotation.sin_cos();
             let edx = perp_x * ec - perp_y * es;
             let edy = perp_x * es + perp_y * ec;
-            let e1a = v3(fx + edx * (s * met.dimexo), fy + edy * (s * met.dimexo), d.first_point.z);
-            let e1b = v3(d1.x + edx * (s * met.dimexe), d1.y + edy * (s * met.dimexe), d1.z);
-            let e2a = v3(sx + edx * (s * met.dimexo), sy + edy * (s * met.dimexo), d.second_point.z);
-            let e2b = v3(d2.x + edx * (s * met.dimexe), d2.y + edy * (s * met.dimexe), d2.z);
+            let (e1a, e1b) = ext_endpoints(d.first_point, d1, s, edx, edy, &met);
+            let (e2a, e2b) = ext_endpoints(d.second_point, d2, s, edx, edy, &met);
             if !met.dimse1 {
                 result.push(make_seg(&e1a, &e1b, &ext_c));
             }
@@ -665,10 +831,8 @@ fn explode_dimension(dim: &Dimension, doc: &CadDocument) -> Vec<EntityType> {
             let (es, ec) = d.ext_line_rotation.sin_cos();
             let edx = perp_x * ec - perp_y * es;
             let edy = perp_x * es + perp_y * ec;
-            let e1a = v3(fx + edx * (s1 * met.dimexo), fy + edy * (s1 * met.dimexo), d.first_point.z);
-            let e1b = v3(d1.x + edx * (s1 * met.dimexe), d1.y + edy * (s1 * met.dimexe), d1.z);
-            let e2a = v3(sx + edx * (s2 * met.dimexo), sy + edy * (s2 * met.dimexo), d.second_point.z);
-            let e2b = v3(d2.x + edx * (s2 * met.dimexe), d2.y + edy * (s2 * met.dimexe), d2.z);
+            let (e1a, e1b) = ext_endpoints(d.first_point, d1, s1, edx, edy, &met);
+            let (e2a, e2b) = ext_endpoints(d.second_point, d2, s2, edx, edy, &met);
             if !met.dimse1 {
                 result.push(make_seg(&e1a, &e1b, &ext_c));
             }
@@ -689,8 +853,7 @@ fn explode_dimension(dim: &Dimension, doc: &CadDocument) -> Vec<EntityType> {
                 point,
                 (center.x - point.x) / len,
                 (center.y - point.y) / len,
-                met.dimasz,
-                met.dimtsz,
+                &met.arrow1,
                 &dim_c,
             ));
             // Leader from the arrow tip toward the text — to the text anchor when
@@ -716,8 +879,8 @@ fn explode_dimension(dim: &Dimension, doc: &CadDocument) -> Vec<EntityType> {
                 .sqrt()
                 .max(1e-12);
             let (ux, uy) = ((edge.x - far.x) / len, (edge.y - far.y) / len);
-            result.extend(dim_terminator(edge, -ux, -uy, met.dimasz, met.dimtsz, &dim_c));
-            result.extend(dim_terminator(far, ux, uy, met.dimasz, met.dimtsz, &dim_c));
+            result.extend(dim_terminator(edge, -ux, -uy, &met.arrow1, &dim_c));
+            result.extend(dim_terminator(far, ux, uy, &met.arrow2, &dim_c));
             // Optional leader past the near edge toward the text. DIM-DIA-LEADER.
             if d.leader_length.abs() > 1e-9 {
                 let anchor = dim_text_anchor(base, center, edge);
