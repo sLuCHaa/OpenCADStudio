@@ -1138,6 +1138,17 @@ fn expand_defn(
                             }
                         } else {
                             if h_px < 1.0 {
+                                // Colour-split MTEXT: only the first outline
+                                // wire from a source entity emits the baseline
+                                // substitute. Siblings share the same
+                                // text_obb_local and would stack identical
+                                // overlapping lines (last colour wins) — the
+                                // same dedup the greek branch does, one tier
+                                // down.
+                                if lw.text_obb_local == last_lod_obb {
+                                    continue;
+                                }
+                                last_lod_obb = lw.text_obb_local;
                                 emit_text_baseline(lw, accum_xform, ctx, out, wpp);
                                 continue;
                             }
@@ -1431,7 +1442,6 @@ fn emit_wire(
         entry.fill_tris.push([hx, hy, hz]);
         entry.fill_tris_low.push([lx, ly, lz]);
     }
-
 }
 
 fn transform_tangent(

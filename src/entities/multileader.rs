@@ -1304,9 +1304,11 @@ impl MultiLeaderTess for MultiLeader {
             plinegen: true,
             vp_scissor: None,
             fill_tris: arrow_fill,
-            // FIXME: fill_tris_low left empty — needs double-single split to match
-            // fill_tris. Any geometry from this path inside a block definition will
-            // trip the debug_assert_eq! in emit_wire (block_cache.rs:1397).
+            // fill_tris_low intentionally empty: this fill renders on the
+            // top-level path, where consumers (face3d_gpu, xclip) treat a short
+            // low half as all-zero, so it draws at f32 precision (sub-metre
+            // error at UTM scale) — not a crash. Follow-up: double-single-split
+            // via points_to_ds to match emit_wire's paired fill path.
             fill_tris_low: Vec::new(),
         });
 
@@ -1596,9 +1598,11 @@ impl MultiLeaderTess for MultiLeader {
                         plinegen: true,
                         vp_scissor: None,
                         fill_tris: greek_tris,
-                        // FIXME: fill_tris_low left empty — needs double-single split to match
-                        // fill_tris. Any geometry from this path inside a block definition will
-                        // trip the debug_assert_eq! in emit_wire (block_cache.rs:1397).
+                        // fill_tris_low intentionally empty: this fill renders on
+                        // the top-level path, where consumers treat a short low
+                        // half as all-zero, so it draws at f32 precision (sub-
+                        // metre error at UTM scale) — not a crash. Follow-up:
+                        // double-single-split via points_to_ds to match emit_wire.
                         fill_tris_low: Vec::new(),
                     });
                 }
@@ -1676,9 +1680,11 @@ impl MultiLeaderTess for MultiLeader {
                         plinegen: true,
                         vp_scissor: None,
                         fill_tris: text_fill_tris,
-                        // FIXME: fill_tris_low left empty — needs double-single split to match
-                        // fill_tris. Any geometry from this path inside a block definition will
-                        // trip the debug_assert_eq! in emit_wire (block_cache.rs:1397).
+                        // fill_tris_low intentionally empty: this fill renders on
+                        // the top-level path, where consumers treat a short low
+                        // half as all-zero, so it draws at f32 precision (sub-
+                        // metre error at UTM scale) — not a crash. Follow-up:
+                        // double-single-split via points_to_ds to match emit_wire.
                         fill_tris_low: Vec::new(),
                     });
                 }

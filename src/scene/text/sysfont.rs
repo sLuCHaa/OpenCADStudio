@@ -6,7 +6,8 @@
 // TTF glyph engine). LFF stroke fonts stay separate — this is purely the
 // TrueType side of the renderer.
 
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 struct SysFonts {
     db: fontdb::Database,
@@ -38,7 +39,27 @@ pub fn families() -> &'static [String] {
 }
 
 /// Resolve a requested family name to the canonical installed system family name (with exact case).
+///
+/// Memoised process-wide: `resolve_font` calls this once per word on the MTEXT
+/// measure hot path for inline-`\f` TTF runs, and `Face::resolve` re-runs it
+/// immediately after — the underlying fontdb query plus linear family scans are
+/// not free. The cache keys on the raw request string; results are stable for
+/// the process lifetime (the font DB is loaded once via `OnceLock`).
 pub fn canonical_family_name(family: &str) -> Option<String> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap().get(family) {
+        return hit.clone();
+    }
+    let resolved = canonical_family_name_uncached(family);
+    cache
+        .lock()
+        .unwrap()
+        .insert(family.to_string(), resolved.clone());
+    resolved
+}
+
+fn canonical_family_name_uncached(family: &str) -> Option<String> {
     let db = &fonts().db;
     
     // 1. Try exact match first
