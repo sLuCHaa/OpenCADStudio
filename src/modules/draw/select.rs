@@ -2,8 +2,11 @@
 //
 // Used when a modify command is invoked with nothing pre-selected.
 // The user may single-click, box-select, or polygon-select any number of objects.
-// After the FIRST completed selection action (regardless of method) the command fires
-// immediately — no Enter required.
+// Picks accumulate into the selection (Shift removes); the set is applied when
+// the user presses Enter or right-clicks (standard "Select objects:" behaviour).
+//
+// Single-object commands (e.g. LAYMCUR) use `instant()` instead: the first
+// completed selection action fires straight away, no Enter required.
 
 use acadrust::Handle;
 use glam::DVec3;
@@ -13,12 +16,31 @@ use crate::scene::model::wire_model::WireModel;
 
 pub struct SelectObjectsCommand {
     pending_cmd: String,
+    /// Selection accumulated so far (kept in sync with the scene selection by
+    /// each `on_selection_complete` call). Applied on Enter when `commit_on_enter`.
+    handles: Vec<Handle>,
+    /// When true, gathering continues until Enter / right-click commits the set.
+    /// When false, the first completed selection action fires immediately.
+    commit_on_enter: bool,
 }
 
 impl SelectObjectsCommand {
+    /// Standard selection set: accumulate picks, apply on Enter / right-click.
     pub fn new(pending_cmd: &str) -> Self {
         Self {
             pending_cmd: pending_cmd.to_string(),
+            handles: Vec::new(),
+            commit_on_enter: true,
+        }
+    }
+
+    /// Single-object variant: the first completed selection action applies
+    /// immediately, with no Enter (used by commands that act on one object).
+    pub fn instant(pending_cmd: &str) -> Self {
+        Self {
+            pending_cmd: pending_cmd.to_string(),
+            handles: Vec::new(),
+            commit_on_enter: false,
         }
     }
 }
@@ -29,7 +51,15 @@ impl CadCommand for SelectObjectsCommand {
     }
 
     fn prompt(&self) -> String {
-        format!("{}  Select objects:", self.pending_cmd)
+        if self.commit_on_enter && !self.handles.is_empty() {
+            format!(
+                "{}  Select objects ({} selected, Enter to apply):",
+                self.pending_cmd,
+                self.handles.len()
+            )
+        } else {
+            format!("{}  Select objects:", self.pending_cmd)
+        }
     }
 
     // Opt into the selection-gathering path; host routes clicks through
@@ -39,20 +69,35 @@ impl CadCommand for SelectObjectsCommand {
     }
 
     fn on_selection_complete(&mut self, handles: Vec<Handle>) -> CmdResult {
+        if self.commit_on_enter {
+            // Keep gathering: remember the running set and update the prompt.
+            // The command is applied when the user presses Enter / right-clicks.
+            self.handles = handles;
+            return CmdResult::NeedPoint;
+        }
+        // Single-object variant: apply on the first non-empty selection.
         if handles.is_empty() {
             return CmdResult::NeedPoint;
         }
         CmdResult::Relaunch(std::mem::take(&mut self.pending_cmd), handles)
     }
 
-    // These are never called while is_selection_gathering is true, but the
-    // trait requires implementations.
     fn on_point(&mut self, _pt: DVec3) -> CmdResult {
         CmdResult::NeedPoint
     }
+
+    // Enter / right-click ends the gather phase and fires the pending command
+    // with the accumulated selection. Nothing selected → cancel.
     fn on_enter(&mut self) -> CmdResult {
-        CmdResult::Cancel
+        if !self.commit_on_enter || self.handles.is_empty() {
+            return CmdResult::Cancel;
+        }
+        CmdResult::Relaunch(
+            std::mem::take(&mut self.pending_cmd),
+            std::mem::take(&mut self.handles),
+        )
     }
+
     fn on_escape(&mut self) -> CmdResult {
         CmdResult::Cancel
     }

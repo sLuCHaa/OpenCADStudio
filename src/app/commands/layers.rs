@@ -301,7 +301,8 @@ impl OpenCADStudio {
                 let entities = self.tabs[i].scene.selected_entities();
                 if entities.is_empty() {
                     use crate::modules::draw::select::SelectObjectsCommand;
-                    let cmd = SelectObjectsCommand::new("LAYMCUR");
+                    // LAYMCUR acts on one object's layer; apply on the first pick.
+                    let cmd = SelectObjectsCommand::instant("LAYMCUR");
                     self.command_line.push_info(&cmd.prompt());
                     self.tabs[i].active_cmd = Some(Box::new(cmd));
                 } else {
