@@ -60,6 +60,27 @@ pub fn register_as_handler() -> Result<(), String> {
     }
 }
 
+/// Remove this app's file-handler registration (the inverse of
+/// [`register_as_handler`]) so it no longer claims .dwg/.dxf/.bak. Best-effort.
+pub fn unregister_handler() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_impl::unregister_handler()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux_impl::unregister_handler()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Ok(())
+    }
+}
+
 /// Try to make this app the default handler for .dwg and .dxf. Returns a short
 /// human-readable status string on success, or an error message on failure.
 pub async fn set_default_app() -> Result<String, String> {
@@ -189,9 +210,28 @@ mod windows_impl {
     }
 
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+        RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
         KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
     };
+
+    /// Remove the per-user keys this app created — undoes [`register_handler`].
+    /// Best-effort: leaves the shared `.dwg/.dxf/.bak` OpenWithProgids values
+    /// (they point at now-deleted ProgIDs, which Windows simply ignores).
+    pub(super) fn unregister_handler() -> Result<(), String> {
+        for key in [
+            r"Software\Classes\Applications\OpenCADStudio.exe",
+            r"Software\Classes\OpenCADStudio.DWG",
+            r"Software\Classes\OpenCADStudio.DXF",
+            r"Software\Classes\OpenCADStudio.BAK",
+            r"Software\Open CAD Studio",
+        ] {
+            let w = wide(key);
+            unsafe {
+                RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr());
+            }
+        }
+        Ok(())
+    }
 
     fn wide(s: &str) -> Vec<u16> {
         std::ffi::OsStr::new(s).encode_wide().chain(Some(0)).collect()
@@ -391,6 +431,23 @@ mod linux_impl {
         // Best-effort: refresh the MIME→app cache. Absent on minimal systems.
         let _ = std::process::Command::new("update-desktop-database")
             .arg(&apps)
+            .status();
+        Ok(())
+    }
+
+    /// Remove the .desktop entry and the CAD mime package, then refresh the
+    /// caches — undoes [`register_handler`]. Best-effort; missing files are fine.
+    pub(super) fn unregister_handler() -> Result<(), String> {
+        let apps = data_home()?.join("applications");
+        let _ = std::fs::remove_file(apps.join(format!("{APP_ID}.desktop")));
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(&apps)
+            .status();
+
+        let home = data_home()?;
+        let _ = std::fs::remove_file(home.join("mime/packages").join(format!("{APP_ID}-cad.xml")));
+        let _ = std::process::Command::new("update-mime-database")
+            .arg(home.join("mime"))
             .status();
         Ok(())
     }

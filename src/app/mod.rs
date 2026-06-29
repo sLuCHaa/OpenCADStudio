@@ -250,6 +250,9 @@ pub(super) struct OpenCADStudio {
     /// When true (default), saving over an existing file first writes a `.bak`
     /// copy of it for recovery (#205). Toggle with the ISAVEBAK command.
     pub backup_on_save: bool,
+    /// When true (default), the app registers itself as a .dwg/.dxf/.bak file
+    /// handler on each launch. Toggle with the FILEASSOC command.
+    pub file_assoc_enabled: bool,
     /// Persisted default viewport background, restored from settings and applied
     /// to every drawing tab (new and opened) so a chosen background survives
     /// restarts (#188). `None` = the built-in dark-grey / off-white defaults.
@@ -1866,6 +1869,7 @@ impl OpenCADStudio {
             dyn_input: true,
             texteditmode: false,
             backup_on_save: true,
+            file_assoc_enabled: true,
             default_bg_color: None,
             default_paper_bg_color: None,
             awaiting_vports: false,
@@ -2151,8 +2155,15 @@ impl OpenCADStudio {
         // portable .exe / AppImage that no installer has registered. Detached so
         // it never delays startup.
         std::thread::spawn(|| {
-            if let Err(e) = crate::io::file_association::register_as_handler() {
-                eprintln!("file association: handler registration failed: {e}");
+            // Honour the FILEASSOC toggle: skip (re)registration when the user
+            // has turned file association off.
+            let enabled = settings::UserSettings::load()
+                .map(|s| s.file_assoc_enabled)
+                .unwrap_or(true);
+            if enabled {
+                if let Err(e) = crate::io::file_association::register_as_handler() {
+                    eprintln!("file association: handler registration failed: {e}");
+                }
             }
         });
         let state = Self::new();

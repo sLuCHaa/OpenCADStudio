@@ -1468,6 +1468,39 @@ impl OpenCADStudio {
                     _ => self.command_line.push_error("Requires 0 or 1"),
                 }
             }
+            "FILEASSOC" => {
+                let v = if self.file_assoc_enabled { 1 } else { 0 };
+                self.command_line.push_output(&format!("FILEASSOC = {v}"));
+            }
+            cmd if cmd.starts_with("FILEASSOC ") => {
+                match cmd.trim_start_matches("FILEASSOC").trim() {
+                    "1" => {
+                        self.file_assoc_enabled = true;
+                        self.persist_settings_if_changed();
+                        match crate::io::file_association::register_as_handler() {
+                            Ok(()) => self.command_line.push_output(
+                                "FILEASSOC set to 1 — registered as a .dwg/.dxf/.bak handler",
+                            ),
+                            Err(e) => self
+                                .command_line
+                                .push_error(&format!("FILEASSOC: registration failed: {e}")),
+                        }
+                    }
+                    "0" => {
+                        self.file_assoc_enabled = false;
+                        self.persist_settings_if_changed();
+                        match crate::io::file_association::unregister_handler() {
+                            Ok(()) => self
+                                .command_line
+                                .push_output("FILEASSOC set to 0 — unregistered as a file handler"),
+                            Err(e) => self
+                                .command_line
+                                .push_error(&format!("FILEASSOC: unregister failed: {e}")),
+                        }
+                    }
+                    _ => self.command_line.push_error("Requires 0 or 1"),
+                }
+            }
             "PDSIZE" => {
                 use crate::command::ValuePromptCommand;
                 let c = ValuePromptCommand::new(
