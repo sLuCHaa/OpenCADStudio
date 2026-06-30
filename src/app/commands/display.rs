@@ -3,12 +3,6 @@ use super::*;
 impl OpenCADStudio {
     pub(super) fn dispatch_display(&mut self, cmd: &str, i: usize) -> Option<Task<Message>> {
         match cmd {
-            // ── Display refresh (no-op in GPU raster pipeline) ────────────────
-            "REGEN" | "REGENALL" | "REDRAW" | "REDRWALL" => {
-                // Display is always up-to-date in the GPU raster pipeline.
-                self.command_line.push_output("Display regenerated.");
-            }
-
             // Interactive pan: left-drag pans the view until Esc. The only pan
             // path when there is no middle mouse button (trackpad / web).
             "PAN" | "P" => {

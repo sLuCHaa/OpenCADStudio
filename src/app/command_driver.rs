@@ -764,6 +764,10 @@ impl OpenCADStudio {
                         }
                     }
                     self.tabs[i].dirty = true;
+                    // Color / linetype / lineweight are baked into the cached
+                    // wires at tessellation time; bump the geometry epoch so the
+                    // matched objects repaint instead of holding their old look.
+                    self.tabs[i].scene.bump_geometry();
                     self.refresh_properties();
                     self.command_line
                         .push_info(&format!("Properties matched to {} object(s).", dest.len()));

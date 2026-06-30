@@ -964,6 +964,10 @@ impl OpenCADStudio {
                             pl.color = new_color;
                         }
                         self.tabs[i].dirty = true;
+                        // ByLayer color is baked into the cached wires at
+                        // tessellation time, so bump the geometry epoch to
+                        // invalidate the wire cache and repaint with the new color.
+                        self.tabs[i].scene.bump_geometry();
                     }
                     self.tabs[i].layers.color_picker_row = None;
                     self.tabs[i].layers.color_full_palette = false;
@@ -984,6 +988,8 @@ impl OpenCADStudio {
                             pl.linetype = lt;
                         }
                         self.tabs[i].dirty = true;
+                        // Linetype is baked into the cached wires; repaint.
+                        self.tabs[i].scene.bump_geometry();
                     }
                 }
                 Task::none()
@@ -1001,6 +1007,8 @@ impl OpenCADStudio {
                             pl.lineweight = lw;
                         }
                         self.tabs[i].dirty = true;
+                        // Lineweight is baked into the cached wires; repaint.
+                        self.tabs[i].scene.bump_geometry();
                     }
                 }
                 Task::none()

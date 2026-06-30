@@ -243,8 +243,6 @@ Status of every standard CAD command in Open CAD Studio:
 | `ZOOM` | Z | Zoom | ✅ |
 | `PAN` | P | Pan | ✅ |
 | `ORBIT` | 3DO | 3D orbit | ✅ |
-| `REGEN` | RE | Regenerate drawing | ✅ |
-| `REDRAW` | R | Redraw viewport | ✅ |
 | `VPORTS` | — | Viewport configuration | ✅ |
 | `VPJOIN` | — | Join viewports | ✅ |
 | `SYNCPVIEWPORTS` | VPSYNC | Sync viewport display settings | ✅ |

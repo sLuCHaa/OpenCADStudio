@@ -1148,6 +1148,23 @@ mod layer0_inherit_tests {
         assert_eq!(&c[..3], &ins[..3], "ByBlock child uses the insert's color");
     }
 
+    // A *top-level* (non-block-child) entity on layer 0 with ByLayer colour
+    // resolves layer 0's own colour and follows it when the layer is recoloured.
+    // Regression guard for the issue 231 layer-0 repaint path.
+    #[test]
+    fn toplevel_layer0_bylayer_follows_layer_color() {
+        let mut d = doc();
+        let e = child("0", Color::ByLayer);
+        let before = render_style_for(&d, &e).0;
+        if let Some(l) = d.layers.get_mut("0") {
+            l.color = Color::Index(3); // recolour layer 0 -> green
+        }
+        let after = render_style_for(&d, &e).0;
+        let green = tess_util::aci_to_rgba(&Color::Index(3));
+        assert_eq!(&after[..3], &green[..3], "top-level layer-0 ByLayer must follow layer 0's colour");
+        assert_ne!(&before[..3], &after[..3], "colour must change after recolour");
+    }
+
     #[test]
     fn explicit_color_wins_even_on_layer0() {
         let d = doc();
