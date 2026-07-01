@@ -47,6 +47,33 @@ jobs:
       # wasm-bindgen output is served verbatim.
       - run: touch dist/.nojekyll
 
+      # The web app can't call the Patreon API directly (CORS + the token would
+      # be exposed in the bundle), so generate the supporters list server-side
+      # here — token stays in the CI secret — and serve it next to the app.
+      # The web build fetches `supporters.json` on the same origin.
+      - name: Generate supporters.json
+        env:
+          OCS_PATREON_TOKEN: ${{ secrets.OCS_PATREON_TOKEN }}
+        run: |
+          if [ -z "$OCS_PATREON_TOKEN" ]; then
+            echo '[]' > dist/supporters.json; exit 0
+          fi
+          CID=$(curl -sf -H "Authorization: Bearer $OCS_PATREON_TOKEN" \
+            "https://www.patreon.com/api/oauth2/v2/campaigns" \
+            | jq -r '.data[0].id // empty' || true)
+          if [ -z "$CID" ]; then
+            echo '[]' > dist/supporters.json; exit 0
+          fi
+          curl -sf -H "Authorization: Bearer $OCS_PATREON_TOKEN" \
+            "https://www.patreon.com/api/oauth2/v2/campaigns/$CID/members?fields%5Bmember%5D=full_name,patron_status,currently_entitled_amount_cents&page%5Bcount%5D=200" \
+            | jq -c '[.data[]
+                | select(.attributes.patron_status=="active_patron")
+                | select(.attributes.currently_entitled_amount_cents>0)
+                | {name: .attributes.full_name, cents: .attributes.currently_entitled_amount_cents}]
+                | sort_by(-.cents)' \
+            > dist/supporters.json || echo '[]' > dist/supporters.json
+          echo "supporters: $(jq 'length' dist/supporters.json)"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

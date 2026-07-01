@@ -2329,7 +2329,13 @@ impl OpenCADStudio {
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut s = Self::new();
         let focus = s.focus_cmd_input();
-        (s, focus)
+        // Web can't reach the Patreon API directly (CORS); fetch the CI-built
+        // supporters.json served on the same origin instead.
+        let patrons = Task::perform(
+            crate::patreon::fetch_patrons_web(),
+            Message::PatronsFetched,
+        );
+        (s, Task::batch([focus, patrons]))
     }
 }
 

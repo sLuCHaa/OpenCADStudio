@@ -22,6 +22,8 @@ default = ["solid3d"]
 solid3d = ["dep:truck-meshalgo", "dep:truck-shapeops", "dep:lzma-sys"]
 
 [dependencies]
+# JSON: plugin marketplace / Patreon fetch (native) + web supporters.json parse.
+serde_json = "1"
 # Stable, dependency-free add-on contract (manifest + ribbon/CadModule types).
 # Plugin authors target this crate's semver, not OpenCADStudio internals.
 # The `host` feature (out-of-process plugin runtime: interprocess, libloading,
@@ -89,8 +91,6 @@ open = "5"
 # `memchr` (1.0.2) via lopdf → nom_locate, and the web build has no filesystem.
 printpdf = { version = "0.9.1", default-features = false }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-# Parse the GitHub Releases API response for the plugin marketplace.
-serde_json = "1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Web gets the dependency-free manifest/ribbon contract only (no plugin host).

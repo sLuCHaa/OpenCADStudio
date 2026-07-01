@@ -71,6 +71,42 @@ pub fn fetch_patrons() -> Result<Vec<(String, i64)>, String> {
     Ok(patrons)
 }
 
+/// Web build: the browser can't call the Patreon API directly (CORS + the
+/// token would be exposed in the bundle), so it fetches a pre-generated
+/// `supporters.json` published next to the app on the same origin (produced by
+/// CI with the token held server-side). Shape: `[{ "name": .., "cents": .. }]`.
+#[cfg(target_arch = "wasm32")]
+pub async fn fetch_patrons_web() -> Result<Vec<(String, i64)>, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let window = web_sys::window().ok_or("no window")?;
+    let resp_val = JsFuture::from(window.fetch_with_str("supporters.json"))
+        .await
+        .map_err(|_| "fetch failed")?;
+    let resp: web_sys::Response = resp_val.dyn_into().map_err(|_| "not a Response")?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let text = JsFuture::from(resp.text().map_err(|_| "text() unavailable")?)
+        .await
+        .map_err(|_| "body read failed")?;
+    let body = text.as_string().ok_or("body is not a string")?;
+
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let arr = json.as_array().ok_or("supporters.json is not an array")?;
+    Ok(arr
+        .iter()
+        .filter_map(|e| {
+            let name = e["name"].as_str()?.trim().to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some((name, e["cents"].as_i64().unwrap_or(0)))
+        })
+        .collect())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn get_json(
     agent: &ureq::Agent,
