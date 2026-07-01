@@ -660,6 +660,9 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                                 bounds.height,
                             );
                             self.tabs[i].scene.camera_generation += 1;
+                            // Keep an in-progress box selection pinned to the
+                            // drawing as the view pans under it (#234).
+                            self.reproject_box_anchor(i, vp_size.0, vp_size.1);
                         }
                         self.tabs[i].scene.selection.borrow_mut().middle_last_pos = Some(p);
                         return Task::none();
@@ -1242,6 +1245,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                 sel.middle_down = false;
                 sel.middle_last_pos = None;
                 sel.box_anchor = None;
+                sel.box_anchor_world = None;
                 sel.box_current = None;
                 sel.box_crossing = false;
                 sel.poly_active = false;
@@ -2220,6 +2224,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                         sel.poly_points.clear();
                         sel.poly_crossing = false;
                         sel.box_anchor = None;
+                        sel.box_anchor_world = None;
                         sel.box_current = None;
                     } else {
                         if box_anchor.is_none() {
@@ -2318,12 +2323,20 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                                     // add to it (issue #83). The box completion
                                     // (or Esc) decides what happens to the
                                     // selection.
+                                    // Pin the anchor to the world point under it
+                                    // so a zoom/pan mid-drag re-projects it
+                                    // instead of leaving it frozen in pixels
+                                    // (#234). Computed before the selection
+                                    // borrow so the &self projection can't clash.
+                                    let anchor_world =
+                                        self.cursor_model_point(i, &edit_cam, p, bounds);
                                     let mut sel = self.tabs[i].scene.selection.borrow_mut();
                                     // Full-canvas space: ViewportMove updates
                                     // box_current in canvas coords and the overlay
                                     // draws there; release maps back into the tile.
                                     sel.box_anchor = Some(p_full);
                                     sel.box_current = Some(p_full);
+                                    sel.box_anchor_world = Some(anchor_world);
                                     sel.box_crossing = false;
                                 }
                             }
@@ -2381,6 +2394,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                             sel.box_last = Some((a, p));
                             sel.box_last_crossing = crossing;
                             sel.box_anchor = None;
+                            sel.box_anchor_world = None;
                             sel.box_current = None;
                             sel.box_crossing = false;
                             selection_just_completed = true;
@@ -2662,8 +2676,31 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                     }
                     drop(cam);
                     self.tabs[i].scene.camera_generation += 1;
+                    // Keep an in-progress box selection pinned to the drawing
+                    // as the view zooms under it (#234).
+                    self.reproject_box_anchor(i, vw, vh);
                 }
                 Task::none()
+    }
+
+    /// Re-pin an active box-selection anchor to its stored world point after the
+    /// model-space view moves (zoom/pan), so the selection rectangle tracks the
+    /// drawing instead of staying frozen at its original pixel. No-op when no
+    /// box is in progress. (#234)
+    pub(super) fn reproject_box_anchor(&mut self, i: usize, vw: f32, vh: f32) {
+        let world = self.tabs[i].scene.selection.borrow().box_anchor_world;
+        let Some(world) = world else { return };
+        let tile_b = self.tabs[i].scene.active_model_tile_bounds(vw, vh);
+        let tile_local = iced::Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: tile_b.width,
+            height: tile_b.height,
+        };
+        if let Some(sp) = self.tabs[i].scene.camera.borrow().project(world, tile_local) {
+            self.tabs[i].scene.selection.borrow_mut().box_anchor =
+                Some(iced::Point::new(sp.x + tile_b.x, sp.y + tile_b.y));
+        }
     }
 
     pub(super) fn on_viewport_click(&mut self) -> Task<Message> {

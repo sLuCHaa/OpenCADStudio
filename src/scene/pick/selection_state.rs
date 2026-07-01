@@ -6,6 +6,11 @@ use iced::Point;
 pub struct SelectionState {
     pub vp_size: (f32, f32),
     pub box_anchor: Option<Point>,
+    /// World point under the box-selection anchor, so the anchor can be
+    /// re-projected to screen when the camera zooms/pans mid-drag instead of
+    /// staying frozen at its original pixel (which selected the wrong area).
+    /// (#234)
+    pub box_anchor_world: Option<glam::DVec3>,
     pub box_current: Option<Point>,
     pub box_last: Option<(Point, Point)>,
     pub box_crossing: bool,
