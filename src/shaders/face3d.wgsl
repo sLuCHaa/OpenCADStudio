@@ -34,8 +34,9 @@ struct VertexOut {
     @location(0)       color:    vec4<f32>,
 };
 
-// Draw-order depth bias (see wire.wgsl). Signed draw_depth; 0.0 (3D mesh
-// faces) leaves real depth untouched; 2D fills / 3DFACE quads order by rank.
+// Draw-order depth bias (see wire.wgsl). Signed draw_depth; 0.0 (all 3D
+// surface faces — 3DFACE, PolyfaceMesh, PolygonMesh) leaves real depth
+// untouched so they occlude against solids; only 2D fills order by rank.
 const DRAW_ORDER_BIAS: f32 = 0.001;
 
 @vertex

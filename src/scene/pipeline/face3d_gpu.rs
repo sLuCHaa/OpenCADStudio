@@ -93,9 +93,10 @@ impl Face3DGpu {
     /// - `face3d_wires`: Face3D entities — `key_vertices` holds 4 quad corners;
     ///   emits 2 triangles per face into the 3D buffer.
     /// - `all_wires`: all entity wires — `fill_tris` holds pre-triangulated
-    ///   fill data. Wires with non-empty `points` (PolyfaceMesh / PolygonMesh
-    ///   face data) feed the 3D buffer; wires with empty `points` (2D fills)
-    ///   feed the 2D buffer.
+    ///   fill data. Fills with a non-empty `fill_tris_low` residual (real 3-D
+    ///   surfaces — PolyfaceMesh / PolygonMesh) feed the 3D buffer at their
+    ///   true depth; fills with empty `fill_tris_low` (2D fills — text greek,
+    ///   MultiLeader / dimension backgrounds) feed the 2D draw-order buffer.
     /// - `keep_3d_mesh_fills`: when false (wireframe modes), the 3D side
     ///   is left empty; the 2D side is always populated.
     pub fn from_wires(
@@ -124,7 +125,6 @@ impl Face3DGpu {
                 }
                 let [r, g, b, a] = wire.color;
                 let fill_color = [r * 0.45, g * 0.45, b * 0.45, a];
-                let depth = depth_of(wire);
                 let p = &wire.key_vertices;
                 // key_vertices are f64 (offset-relative); split into the
                 // double-single (high, low) pair the face3d shader expects.
@@ -134,7 +134,12 @@ impl Face3DGpu {
                     Face3DVertex {
                         position: h,
                         color: fill_color,
-                        draw_depth: depth,
+                        // A 3DFACE is genuine 3D geometry: keep its real depth
+                        // (no draw-order bias), matching the PolyfaceMesh /
+                        // PolygonMesh path below. A non-zero draw-order rank
+                        // here yanked 3DFACEs toward the camera so they drew in
+                        // front of solids (which carry no such bias).
+                        draw_depth: 0.0,
                         position_low: [
                             (x - h[0] as f64) as f32,
                             (y - h[1] as f64) as f32,
@@ -165,7 +170,18 @@ impl Face3DGpu {
             if wire.fill_tris.is_empty() {
                 continue;
             }
-            let is_3d_mesh_face = !wire.points.is_empty();
+            // A real 3-D surface fill (PolyfaceMesh / PolygonMesh) carries a
+            // double-single low residual paired with `fill_tris` — it lives at
+            // true world coordinates and must keep its real depth. 2-D fills
+            // (text greek, MultiLeader / dimension backgrounds) deliberately
+            // leave `fill_tris_low` empty and order by draw rank instead.
+            //
+            // NOTE: classifying by `!points.is_empty()` is wrong here — the
+            // tessellator emits a mesh's edges and its fill as *separate*
+            // WireModels (points-only vs fill-only), so the fill model has no
+            // points and was being misrouted to the 2-D (draw-order-biased)
+            // buffer, which drew meshes in front of solids.
+            let is_3d_mesh_face = !wire.fill_tris_low.is_empty();
             let [r, g, b, a] = wire.color;
             if is_3d_mesh_face {
                 if !keep_3d_mesh_fills {
