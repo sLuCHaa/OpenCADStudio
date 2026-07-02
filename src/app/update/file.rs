@@ -286,6 +286,7 @@ pub(super) fn on_open_file(&mut self) -> Task<Message> {
 
                 // Auto-resolve XREFs relative to the opened file's directory.
                 let mut xref_ms = 0u32;
+                let mut xref_merged = false;
                 if let Some(base_dir) = path.parent() {
                     // xref content arrives un-purged: parser-garbage entities
                     // inside the referenced file can trigger infinite loops in
@@ -304,6 +305,7 @@ pub(super) fn on_open_file(&mut self) -> Task<Message> {
                     for info in &xrefs {
                         match info.status {
                             crate::io::xref::XrefStatus::Loaded => {
+                                xref_merged = true;
                                 self.command_line
                                     .push_output(&format!("XREF  Loaded \"{}\"", info.name));
                             }
@@ -344,6 +346,15 @@ pub(super) fn on_open_file(&mut self) -> Task<Message> {
                 self.tabs[i].scene.block_meshes = caches.block_meshes;
                 // Invalidate the wire cache so the new document is tessellated.
                 self.tabs[i].scene.bump_geometry();
+                // XREFs are merged into the document AFTER the background worker
+                // built the mesh caches above, so those caches contain none of
+                // the xref'd geometry. The wire pass rebuilds from the document
+                // each frame (bump_geometry covers it), but 3D-solid meshes are
+                // only tessellated by `populate_meshes_from_document` — re-run it
+                // so xref'd solids (walls, floors, roofs) actually render. (#203)
+                if xref_merged {
+                    self.tabs[i].scene.populate_meshes_from_document();
+                }
                 self.tabs[i].scene.selected = rustc_hash::FxHashSet::default();
                 self.tabs[i].scene.preview_wires = vec![];
                 self.tabs[i].scene.current_layout = "Model".to_string();
