@@ -138,12 +138,113 @@ pub trait CadModule: Send + Sync {
     #[allow(dead_code)]
     fn id(&self) -> &'static str;
     fn title(&self) -> &'static str;
-    fn ribbon_groups(&self) -> Vec<RibbonGroup>;
+    fn ribbon_groups(&self) -> &[RibbonGroup];
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn once_lock_eliminates_allocation_after_first_call() {
+        // Helper to build a realistic module tree (2 groups, ~20 items)
+        // Benchmark builds this manually for a clean before/after comparison.
+        fn build_tree() -> Vec<RibbonGroup> {
+            vec![
+                RibbonGroup {
+                    title: "Draw",
+                    tools: (0..10)
+                        .map(|i| {
+                            RibbonItem::Tool(ToolDef {
+                                id: &*Box::leak(format!("TOOL_{i}").into_boxed_str()),
+                                label: &*Box::leak(format!("Tool {i}").into_boxed_str()),
+                                icon: IconKind::Glyph("T"),
+                                event: ModuleEvent::Command(format!("CMD_{i}")),
+                            })
+                        })
+                        .collect(),
+                },
+                RibbonGroup {
+                    title: "Modify",
+                    tools: (0..10)
+                        .map(|i| {
+                            RibbonItem::Tool(ToolDef {
+                                id: &*Box::leak(format!("MOD_{i}").into_boxed_str()),
+                                label: &*Box::leak(format!("Mod {i}").into_boxed_str()),
+                                icon: IconKind::Glyph("M"),
+                                event: ModuleEvent::Command(format!("MODIFY_{i}")),
+                            })
+                        })
+                        .collect(),
+                },
+            ]
+        }
+
+        // ── Before: rebuild the tree every call (what every frame used to pay) ──
+        const N: usize = 10_000;
+        let start = std::time::Instant::now();
+        let mut total_len = 0usize;
+        for _ in 0..N {
+            let groups = std::hint::black_box(build_tree());
+            total_len += std::hint::black_box(groups.len());
+            // Prevent optimizer from reusing the allocation across iterations
+            // by leaking the Vec — otherwise LLVM coalesces the Vec into a
+            // single allocation for the whole loop, which under-counts the
+            // real per-frame cost. black_box on .as_ptr() forces the box to
+            // be materialised even when nothing else consumes it.
+            std::hint::black_box(groups.as_ptr());
+        }
+        let before_elapsed = start.elapsed();
+        eprintln!(
+            "BEFORE (rebuild each call): {N} builds in {before_elapsed:?} \
+             ({:.1} µs/build, total_len={total_len})",
+            before_elapsed.as_secs_f64() * 1_000_000.0 / N as f64,
+        );
+
+        // ── After: cached via OnceLock ──
+        struct Cached;
+        impl CadModule for Cached {
+            fn id(&self) -> &'static str {
+                "cached"
+            }
+            fn title(&self) -> &'static str {
+                "Cached"
+            }
+            fn ribbon_groups(&self) -> &[RibbonGroup] {
+                static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+                GROUPS.get_or_init(build_tree)
+            }
+        }
+        let m = Cached;
+        let _ = m.ribbon_groups(); // warm-up — pays construction cost once
+
+        let start = std::time::Instant::now();
+        let mut total_len = 0usize;
+        for _ in 0..N {
+            let groups = std::hint::black_box(m.ribbon_groups());
+            total_len += std::hint::black_box(groups.len());
+        }
+        let after_elapsed = start.elapsed();
+        eprintln!(
+            "AFTER (cached): {N} calls in {after_elapsed:?} \
+             ({:.1} ns/call, total_len={total_len})",
+            after_elapsed.as_secs_f64() * 1_000_000_000.0 / N as f64,
+        );
+
+        // Ratio: serialize cost in ns/call to avoid division by zero
+        let before_ns = before_elapsed.as_nanos() as f64 / N as f64;
+        let after_ns = after_elapsed.as_nanos() as f64 / N as f64;
+        let ratio = if after_ns > 0.0 {
+            before_ns / after_ns
+        } else {
+            f64::INFINITY
+        };
+        eprintln!(
+            "BEFORE vs AFTER: {before_ns:.0} ns/call vs {after_ns:.1} ns/call ({ratio:.0}× faster)"
+        );
+
+        assert_eq!(total_len, 2 * N, "each call must return 2 groups");
+    }
 
     #[test]
     fn tool_def_converts_into_small_tool() {
@@ -157,6 +258,37 @@ mod tests {
     }
 
     #[test]
+    fn once_lock_produces_identical_pointer_on_subsequent_calls() {
+        struct Demo;
+        impl CadModule for Demo {
+            fn id(&self) -> &'static str {
+                "demo"
+            }
+            fn title(&self) -> &'static str {
+                "Demo"
+            }
+            fn ribbon_groups(&self) -> &[RibbonGroup] {
+                static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+                GROUPS.get_or_init(|| {
+                    vec![RibbonGroup {
+                        title: "Group",
+                        tools: vec![RibbonItem::Tool(ToolDef {
+                            id: "LINE",
+                            label: "Line",
+                            icon: IconKind::Glyph("／"),
+                            event: ModuleEvent::Command("LINE".to_string()),
+                        })],
+                    }]
+                })
+            }
+        }
+        let m = Demo;
+        let first: *const [RibbonGroup] = m.ribbon_groups();
+        let second: *const [RibbonGroup] = m.ribbon_groups();
+        assert_eq!(first, second, "cached calls must return the same pointer");
+    }
+
+    #[test]
     fn cad_module_is_object_safe() {
         struct Demo;
         impl CadModule for Demo {
@@ -166,11 +298,14 @@ mod tests {
             fn title(&self) -> &'static str {
                 "Demo"
             }
-            fn ribbon_groups(&self) -> Vec<RibbonGroup> {
-                vec![RibbonGroup {
-                    title: "Group",
-                    tools: vec![],
-                }]
+            fn ribbon_groups(&self) -> &[RibbonGroup] {
+                static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+                GROUPS.get_or_init(|| {
+                    vec![RibbonGroup {
+                        title: "Group",
+                        tools: vec![],
+                    }]
+                })
             }
         }
         let m: Box<dyn CadModule> = Box::new(Demo);

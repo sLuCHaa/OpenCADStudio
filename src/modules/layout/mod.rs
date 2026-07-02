@@ -36,31 +36,36 @@ impl CadModule for LayoutModule {
         "Layout"
     }
 
-    fn ribbon_groups(&self) -> Vec<RibbonGroup> {
-        vec![
-            RibbonGroup {
-                title: "Viewport",
-                tools: vec![mview::tool().into()],
-            },
-            RibbonGroup {
-                title: "Plot",
-                tools: vec![
-                    ToolDef {
-                        id: "PAGESETUP",
-                        label: "Page Setup",
-                        icon: IconKind::Svg(include_bytes!("../../../assets/icons/pagesetup.svg")),
-                        event: ModuleEvent::Command("PAGESETUP".to_string()),
-                    }
-                    .into(),
-                    ToolDef {
-                        id: "PLOT",
-                        label: "Export PDF",
-                        icon: IconKind::Svg(include_bytes!("../../../assets/icons/plot.svg")),
-                        event: ModuleEvent::Command("PLOT".to_string()),
-                    }
-                    .into(),
-                ],
-            },
-        ]
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
+            vec![
+                RibbonGroup {
+                    title: "Viewport",
+                    tools: vec![mview::tool().into()],
+                },
+                RibbonGroup {
+                    title: "Plot",
+                    tools: vec![
+                        ToolDef {
+                            id: "PAGESETUP",
+                            label: "Page Setup",
+                            icon: IconKind::Svg(include_bytes!(
+                                "../../../assets/icons/pagesetup.svg"
+                            )),
+                            event: ModuleEvent::Command("PAGESETUP".to_string()),
+                        }
+                        .into(),
+                        ToolDef {
+                            id: "PLOT",
+                            label: "Export PDF",
+                            icon: IconKind::Svg(include_bytes!("../../../assets/icons/plot.svg")),
+                            event: ModuleEvent::Command("PLOT".to_string()),
+                        }
+                        .into(),
+                    ],
+                },
+            ]
+        })
     }
 }

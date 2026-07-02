@@ -40,34 +40,37 @@ impl CadModule for ModelModule {
         "Model"
     }
 
-    fn ribbon_groups(&self) -> Vec<RibbonGroup> {
-        vec![
-            RibbonGroup {
-                title: "Model",
-                tools: vec![
-                    RibbonItem::LargeTool(tool("BOX", "Box", BOX_ICON)),
-                    RibbonItem::LargeTool(tool("CYLINDER", "Cylinder", CYLINDER_ICON)),
-                    RibbonItem::LargeTool(tool("CONE", "Cone", CONE_ICON)),
-                    RibbonItem::LargeTool(tool("SPHERE", "Sphere", SPHERE_ICON)),
-                    RibbonItem::Dropdown {
-                        id: "MODEL_MORE",
-                        icon: IconKind::Svg(WEDGE_ICON),
-                        items: vec![
-                            ("WEDGE", "Wedge", IconKind::Svg(WEDGE_ICON)),
-                            ("TORUS", "Torus", IconKind::Svg(TORUS_ICON)),
-                        ],
-                        default: "WEDGE",
-                    },
-                ],
-            },
-            RibbonGroup {
-                title: "Design",
-                tools: vec![
-                    RibbonItem::LargeTool(tool("UNION", "Union", UNION_ICON)),
-                    RibbonItem::LargeTool(tool("SUBTRACT", "Subtract", SUBTRACT_ICON)),
-                    RibbonItem::LargeTool(tool("INTERSECT", "Intersect", INTERSECT_ICON)),
-                ],
-            },
-        ]
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
+            vec![
+                RibbonGroup {
+                    title: "Model",
+                    tools: vec![
+                        RibbonItem::LargeTool(tool("BOX", "Box", BOX_ICON)),
+                        RibbonItem::LargeTool(tool("CYLINDER", "Cylinder", CYLINDER_ICON)),
+                        RibbonItem::LargeTool(tool("CONE", "Cone", CONE_ICON)),
+                        RibbonItem::LargeTool(tool("SPHERE", "Sphere", SPHERE_ICON)),
+                        RibbonItem::Dropdown {
+                            id: "MODEL_MORE",
+                            icon: IconKind::Svg(WEDGE_ICON),
+                            items: vec![
+                                ("WEDGE", "Wedge", IconKind::Svg(WEDGE_ICON)),
+                                ("TORUS", "Torus", IconKind::Svg(TORUS_ICON)),
+                            ],
+                            default: "WEDGE",
+                        },
+                    ],
+                },
+                RibbonGroup {
+                    title: "Design",
+                    tools: vec![
+                        RibbonItem::LargeTool(tool("UNION", "Union", UNION_ICON)),
+                        RibbonItem::LargeTool(tool("SUBTRACT", "Subtract", SUBTRACT_ICON)),
+                        RibbonItem::LargeTool(tool("INTERSECT", "Intersect", INTERSECT_ICON)),
+                    ],
+                },
+            ]
+        })
     }
 }

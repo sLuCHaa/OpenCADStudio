@@ -29,7 +29,9 @@ impl CadModule for MyModule {
     fn title(&self) -> &'static str {
         "My Plugin"
     }
-    fn ribbon_groups(&self) -> Vec<RibbonGroup> {
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
         vec![RibbonGroup {
             title: "Tools",
             tools: vec![RibbonItem::LargeTool(ToolDef {
@@ -39,6 +41,7 @@ impl CadModule for MyModule {
                 event: ModuleEvent::Command("MP_HELLO".to_string()),
             })],
         }]
+    })
     }
 }
 

@@ -139,7 +139,9 @@ impl CadModule for TemplateModule {
         "Template v2"
     }
 
-    fn ribbon_groups(&self) -> Vec<RibbonGroup> {
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
         vec![RibbonGroup {
             title: "Survey",
             tools: vec![
@@ -169,6 +171,7 @@ impl CadModule for TemplateModule {
                 }),
             ],
         }]
+    })
     }
 }
 

@@ -78,7 +78,7 @@ fn handle_host_request(
                 Ok(groups) => HostResponse::Ribbon(
                     groups
                         .ribbon_groups()
-                        .into_iter()
+                        .iter()
                         .map(OwnedRibbonGroup::from)
                         .collect(),
                 ),

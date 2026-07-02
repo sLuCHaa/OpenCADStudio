@@ -79,6 +79,15 @@ impl From<IconKind> for OwnedIconKind {
     }
 }
 
+impl From<&IconKind> for OwnedIconKind {
+    fn from(i: &IconKind) -> Self {
+        match *i {
+            IconKind::Glyph(g) => OwnedIconKind::Glyph(g.to_string()),
+            IconKind::Svg(b) => OwnedIconKind::Svg(b.to_vec()),
+        }
+    }
+}
+
 impl OwnedIconKind {
     /// Leak the owned data to reconstruct an `IconKind` with `&'static` lifetime.
     pub fn to_static(self) -> IconKind {
@@ -96,6 +105,17 @@ impl From<ToolDef> for OwnedToolDef {
             label: t.label.to_string(),
             icon: t.icon.into(),
             event: t.event,
+        }
+    }
+}
+
+impl From<&ToolDef> for OwnedToolDef {
+    fn from(t: &ToolDef) -> Self {
+        Self {
+            id: t.id.to_string(),
+            label: t.label.to_string(),
+            icon: (&t.icon).into(),
+            event: t.event.clone(),
         }
     }
 }
@@ -243,11 +263,80 @@ impl OwnedRibbonItem {
     }
 }
 
+impl From<&RibbonItem> for OwnedRibbonItem {
+    fn from(item: &RibbonItem) -> Self {
+        match item {
+            RibbonItem::Tool(t) => OwnedRibbonItem::Tool(t.into()),
+            RibbonItem::LargeTool(t) => OwnedRibbonItem::LargeTool(t.into()),
+            RibbonItem::Dropdown {
+                id,
+                icon,
+                items,
+                default,
+            } => OwnedRibbonItem::Dropdown {
+                id: id.to_string(),
+                icon: icon.into(),
+                items: items
+                    .iter()
+                    .map(|(a, b, i)| (a.to_string(), b.to_string(), i.into()))
+                    .collect(),
+                default: default.to_string(),
+            },
+            RibbonItem::LargeDropdown {
+                id,
+                label,
+                icon,
+                items,
+                default,
+            } => OwnedRibbonItem::LargeDropdown {
+                id: id.to_string(),
+                label: label.to_string(),
+                icon: icon.into(),
+                items: items
+                    .iter()
+                    .map(|(a, b, i)| (a.to_string(), b.to_string(), i.into()))
+                    .collect(),
+                default: default.to_string(),
+            },
+            RibbonItem::LayerComboGroup { row2, row3 } => OwnedRibbonItem::LayerComboGroup {
+                row2: row2.iter().map(Into::into).collect(),
+                row3: row3.iter().map(Into::into).collect(),
+            },
+            RibbonItem::PropertiesGroup { match_prop } => OwnedRibbonItem::PropertiesGroup {
+                match_prop: match_prop.into(),
+            },
+            RibbonItem::StyleComboGroup {
+                style_key,
+                combo_id,
+                manager_cmd,
+                rows,
+            } => OwnedRibbonItem::StyleComboGroup {
+                style_key: *style_key,
+                combo_id: combo_id.to_string(),
+                manager_cmd: manager_cmd.map(|s| s.to_string()),
+                rows: rows
+                    .iter()
+                    .map(|r| r.iter().map(Into::into).collect())
+                    .collect(),
+            },
+        }
+    }
+}
+
 impl From<RibbonGroup> for OwnedRibbonGroup {
     fn from(g: RibbonGroup) -> Self {
         Self {
             title: g.title.to_string(),
             tools: g.tools.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<&RibbonGroup> for OwnedRibbonGroup {
+    fn from(g: &RibbonGroup) -> Self {
+        Self {
+            title: g.title.to_string(),
+            tools: g.tools.iter().map(Into::into).collect(),
         }
     }
 }
@@ -275,8 +364,8 @@ pub fn to_module(id: String, title: String, groups: Vec<OwnedRibbonGroup>) -> Bo
         fn title(&self) -> &'static str {
             self.title
         }
-        fn ribbon_groups(&self) -> Vec<RibbonGroup> {
-            self.groups.clone()
+        fn ribbon_groups(&self) -> &[RibbonGroup] {
+            &self.groups
         }
     }
     let id = &*Box::leak(id.into_boxed_str());
@@ -302,7 +391,7 @@ impl CadModule for SharedCadModule {
     fn title(&self) -> &'static str {
         self.0.title()
     }
-    fn ribbon_groups(&self) -> Vec<RibbonGroup> {
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
         self.0.ribbon_groups()
     }
 }

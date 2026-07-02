@@ -335,7 +335,7 @@ pub(super) fn tip_style(_theme: &Theme) -> container::Style {
 
 /// Render a 1-row small button (Tool or Dropdown).
 pub(super) fn render_small<'a>(
-    item: RibbonItem,
+    item: &RibbonItem,
     active_tool: &Option<String>,
     open_dd: &Option<String>,
     last_cmd: &HashMap<&'static str, &'static str>,
@@ -368,12 +368,12 @@ pub(super) fn render_small<'a>(
             default,
             ..
         } => {
-            let active = active_tool.as_deref() == Some(id)
+            let active = active_tool.as_deref() == Some(*id)
                 || items
                     .iter()
                     .any(|(cmd, _, _)| active_tool.as_deref() == Some(*cmd));
-            let dd_open = open_dd.as_deref() == Some(id);
-            let last = last_cmd.get(id).copied().unwrap_or(default);
+            let dd_open = open_dd.as_deref() == Some(*id);
+            let last = last_cmd.get(id).copied().unwrap_or(*default);
             let cur_icon = last_cmd
                 .get(id)
                 .copied()
@@ -384,7 +384,7 @@ pub(super) fn render_small<'a>(
                         .map(|(_, _, ik)| *ik)
                 })
                 .or_else(|| items.first().map(|(_, _, ik)| *ik))
-                .unwrap_or(icon);
+                .unwrap_or(*icon);
 
             let cur_label = last_cmd
                 .get(id)
@@ -396,7 +396,7 @@ pub(super) fn render_small<'a>(
                         .map(|(_, lbl, _)| *lbl)
                 })
                 .or_else(|| items.first().map(|(_, lbl, _)| *lbl))
-                .unwrap_or(id);
+                .unwrap_or(*id);
             let tip_text = format!("{}\nCommand: {}", cur_label, last);
 
             let icon_btn = button(make_icon(cur_icon, SMALL_ICON))
@@ -457,7 +457,7 @@ pub(super) fn render_small<'a>(
 
 /// Render a full-height large button (LargeTool, LargeDropdown, LayerCombo, StyleCombo).
 pub(super) fn render_large<'a>(
-    item: RibbonItem,
+    item: &RibbonItem,
     active_tool: &Option<String>,
     open_dd: &Option<String>,
     last_cmd: &HashMap<&'static str, &'static str>,
@@ -508,12 +508,12 @@ pub(super) fn render_large<'a>(
             items,
             default,
         } => {
-            let active = active_tool.as_deref() == Some(id)
+            let active = active_tool.as_deref() == Some(*id)
                 || items
                     .iter()
                     .any(|(cmd, _, _)| active_tool.as_deref() == Some(*cmd));
-            let dd_open = open_dd.as_deref() == Some(id);
-            let last = last_cmd.get(id).copied().unwrap_or(default);
+            let dd_open = open_dd.as_deref() == Some(*id);
+            let last = last_cmd.get(id).copied().unwrap_or(*default);
             let cur_icon = last_cmd
                 .get(id)
                 .copied()
@@ -524,7 +524,7 @@ pub(super) fn render_large<'a>(
                         .map(|(_, _, ik)| *ik)
                 })
                 .or_else(|| items.first().map(|(_, _, ik)| *ik))
-                .unwrap_or(icon);
+                .unwrap_or(*icon);
 
             let cur_label = last_cmd
                 .get(id)
@@ -536,14 +536,14 @@ pub(super) fn render_large<'a>(
                         .map(|(_, lbl, _)| *lbl)
                 })
                 .or_else(|| items.first().map(|(_, lbl, _)| *lbl))
-                .unwrap_or(label);
+                .unwrap_or(*label);
             let tip_text = format!("{}\nCommand: {}", cur_label, last);
             let arr_tip = format!("{} options", label);
 
             let top_btn = button(
                 column![
                     make_icon(cur_icon, LARGE_ICON),
-                    text(label).size(10).color(LABEL_COLOR),
+                    text(*label).size(10).color(LABEL_COLOR),
                 ]
                 .align_x(iced::Center)
                 .spacing(3),
@@ -662,9 +662,9 @@ pub(super) fn render_large<'a>(
             .padding([3, 8])
             .width(Fill);
 
-            let make_tool_row = |tools: Vec<ToolDef>| -> Element<Message> {
+            let make_tool_row = |tools: &[ToolDef]| -> Element<Message> {
                 let btns: Vec<Element<Message>> = tools
-                    .into_iter()
+                    .iter()
                     .map(|t| {
                         let is_active = active_tool.as_deref() == Some(t.id);
                         let tip = t.label;
@@ -847,8 +847,8 @@ pub(super) fn render_large<'a>(
             ..
         } => {
             const STYLE_COMBO_W: f32 = LARGE_W * 2.3;
-            let active: String = style_ctx.active_for(style_key).to_string();
-            let is_open = open_dd.as_deref() == Some(combo_id);
+            let active: String = style_ctx.active_for(*style_key).to_string();
+            let is_open = open_dd.as_deref() == Some(*combo_id);
 
             // ── combo button ──
             let combo_btn = button(
@@ -889,9 +889,9 @@ pub(super) fn render_large<'a>(
                 iced::widget::Space::new().width(0).height(0).into();
 
             // ── tool rows below combo ──
-            let make_tool_row = |tools: Vec<ToolDef>| -> Element<Message> {
+            let make_tool_row = |tools: &[ToolDef]| -> Element<Message> {
                 let btns: Vec<Element<Message>> = tools
-                    .into_iter()
+                    .iter()
                     .map(|t| {
                         let is_active = active_tool.as_deref() == Some(t.id);
                         let tip = t.label;

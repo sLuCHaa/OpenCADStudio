@@ -409,7 +409,7 @@ impl Ribbon {
                     let mut items_row: Vec<Element<Message>> = Vec::new();
                     let mut small_buf: Vec<Element<Message>> = Vec::new();
 
-                    for item in group.tools {
+                    for item in &group.tools {
                         let is_large = matches!(
                             &item,
                             RibbonItem::LargeTool(_)
@@ -587,18 +587,18 @@ impl Ribbon {
         let mut dd_default = "";
         let mut dd_id: &'static str = "";
 
-        'outer: for group in &groups {
+        'outer: for group in groups {
             for item in &group.tools {
                 let (id, items, default) = match item {
                     RibbonItem::Dropdown {
                         id, items, default, ..
-                    } => (id, items, default),
+                    } => (*id, items, *default),
                     RibbonItem::LargeDropdown {
                         id, items, default, ..
-                    } => (id, items, default),
+                    } => (*id, items, *default),
                     _ => continue,
                 };
-                if *id == open_id {
+                if id == open_id {
                     items_list = Some(items.clone());
                     dd_default = default;
                     dd_id = id;
@@ -820,7 +820,7 @@ impl Ribbon {
 
         // Locate the open style combo; capture its style key + manager command.
         let mut found: Option<(crate::modules::StyleKey, Option<&'static str>)> = None;
-        'outer: for group in &groups {
+        'outer: for group in groups {
             for item in &group.tools {
                 if let RibbonItem::StyleComboGroup {
                     style_key,
