@@ -145,7 +145,13 @@ pub trait CadModule: Send + Sync {
 mod tests {
     use super::*;
 
+    // Timing microbenchmark, not a correctness check: it intentionally
+    // `Box::leak`s ~400k strings to defeat the allocator's reuse, so keep it out
+    // of the default suite. Run manually with `cargo test -- --ignored`.
+    // Correctness of the cache is covered by
+    // `once_lock_produces_identical_pointer_on_subsequent_calls`.
     #[test]
+    #[ignore = "microbenchmark: leaks strings by design; run with --ignored"]
     fn once_lock_eliminates_allocation_after_first_call() {
         // Helper to build a realistic module tree (2 groups, ~20 items)
         // Benchmark builds this manually for a clean before/after comparison.
