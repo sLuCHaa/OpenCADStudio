@@ -900,6 +900,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                         let snap_world = self.tabs[i].snap_result.map(|s| s.world.as_vec3());
                         self.snapper.update_otrack_dwell(
                             snap_world,
+                            &all_wires[..],
                             view_rot,
                             eye,
                             bounds,
@@ -919,6 +920,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                                 bounds,
                                 step,
                                 self.last_point,
+                                self.ortho_mode,
                                 ucs,
                             )
                         } else {
@@ -1803,7 +1805,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                             };
                             let ucs = self.tabs[i].scene.viewcube_ucs_mat();
                             self.snapper
-                                .otrack_snap(raw.as_vec3(), view_rot, eye, bounds, step, self.last_point, ucs)
+                                .otrack_snap(raw.as_vec3(), view_rot, eye, bounds, step, self.last_point, self.ortho_mode, ucs)
                         } else {
                             None
                         };

@@ -185,7 +185,7 @@ pub fn selection_overlay<'a>(
     grips: Vec<GripMarker>,
     ucs_icons: Vec<UcsIconParams>,
     ost_points: Vec<OstTrackPoint>,
-    cursor_screen: Point,
+    otrack_line: Option<(Point, Point)>,
     show_viewcube: bool,
     dividers: Vec<iced::Rectangle>,
     pane_move_rect: Option<iced::Rectangle>,
@@ -202,7 +202,7 @@ pub fn selection_overlay<'a>(
         grips,
         ucs_icons,
         ost_points,
-        cursor_screen,
+        otrack_line,
         show_viewcube,
         dividers,
         pane_move_rect,
@@ -231,7 +231,11 @@ struct SelectionCanvas {
     /// entry carries hover/selected (grips).
     ucs_icons: Vec<UcsIconParams>,
     ost_points: Vec<OstTrackPoint>,
-    cursor_screen: Point,
+    /// Active OTRACK alignment: (acquired tracking point, locked cursor), both
+    /// in screen space. Drawn as a dashed guide extended a little past the
+    /// cursor so the extension / tracking line the user snapped to is visible.
+    /// (#219)
+    otrack_line: Option<(Point, Point)>,
     show_viewcube: bool,
     /// Divider bars (pixel rects, canvas-relative) between Model panes — drawn
     /// as filled lines and used to suppress the crosshair over a divider.
@@ -1003,32 +1007,48 @@ impl canvas::Program<Message> for SelectionCanvas {
             );
         }
 
-        // ── Object Snap Tracking lines ────────────────────────────────────
+        // ── Object Snap Tracking ─────────────────────────────────────────────
+        let track_color = Color {
+            r: 0.15,
+            g: 0.85,
+            b: 0.95,
+            a: 0.7,
+        };
+        // The alignment line the cursor is currently locked to — drawn at its
+        // real angle from the acquired point through the lock and a little
+        // beyond, dashed so it reads as a construction guide. This covers the
+        // ortho (0°/90°), polar, and edge-extension cases uniformly (#219).
+        if let Some((base, tip)) = self.otrack_line {
+            let dx = tip.x - base.x;
+            let dy = tip.y - base.y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len > 1e-3 {
+                // Extend the alignment path well past both ends along its
+                // direction (the canvas clips it to the viewport) so it reads
+                // as a full construction line through the acquired point, not a
+                // stub between the corner and the cursor. (#219)
+                let (ux, uy) = (dx / len, dy / len);
+                const L: f32 = 5000.0;
+                let p0 = Point::new(base.x - ux * L, base.y - uy * L);
+                let p1 = Point::new(tip.x + ux * L, tip.y + uy * L);
+                let dash = canvas::Stroke {
+                    line_dash: canvas::LineDash {
+                        segments: &[6.0, 4.0],
+                        offset: 0,
+                    },
+                    ..canvas::Stroke::default()
+                        .with_color(track_color)
+                        .with_width(1.0)
+                };
+                frame.stroke(&canvas::Path::line(p0, p1), dash);
+            }
+        }
+        // Small cross at each acquired tracking point.
         for ost in &self.ost_points {
             let tp = ost.screen;
-            let cx = self.cursor_screen.x;
-            let cy = self.cursor_screen.y;
-            let track_color = Color {
-                r: 0.15,
-                g: 0.85,
-                b: 0.95,
-                a: 0.7,
-            };
-            let dash_stroke = canvas::Stroke::default()
+            let stroke = canvas::Stroke::default()
                 .with_color(track_color)
                 .with_width(1.0);
-
-            // Draw horizontal line from tracking point to cursor.
-            if (cy - tp.y).abs() < 8.0 {
-                let path = canvas::Path::line(tp, Point { x: cx, y: tp.y });
-                frame.stroke(&path, dash_stroke.clone());
-            }
-            // Draw vertical line.
-            if (cx - tp.x).abs() < 8.0 {
-                let path = canvas::Path::line(tp, Point { x: tp.x, y: cy });
-                frame.stroke(&path, dash_stroke.clone());
-            }
-            // Small cross at the tracking point.
             let sz = 5.0_f32;
             let h = canvas::Path::line(
                 Point {
@@ -1050,8 +1070,8 @@ impl canvas::Program<Message> for SelectionCanvas {
                     y: tp.y + sz,
                 },
             );
-            frame.stroke(&h, dash_stroke.clone());
-            frame.stroke(&v, dash_stroke);
+            frame.stroke(&h, stroke.clone());
+            frame.stroke(&v, stroke);
         }
 
         vec![frame.into_geometry()]

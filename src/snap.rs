@@ -109,6 +109,13 @@ pub struct Snapper {
     pub otrack_enabled: bool,
     /// Acquired OST points (world XZ, Y=0 plane).
     pub tracking_points: Vec<Vec3>,
+    /// Edge directions at each acquired point (parallel to `tracking_points`):
+    /// the line direction of every wire segment meeting at that corner, so
+    /// OTRACK can offer an alignment ray along a segment's extension, not only
+    /// the ortho/polar axes. Pulling the cursor along an acquired corner's edge
+    /// then locks to that line (#219). Empty for a point that is not a segment
+    /// endpoint (e.g. a midpoint or centre acquisition).
+    pub tracking_dirs: Vec<Vec<Vec3>>,
     /// Last snap world position (for dwell detection).
     pub last_snap_world: Option<Vec3>,
     /// When the cursor first rested near `last_snap_world`.
@@ -140,6 +147,7 @@ impl Default for Snapper {
             osnap_radius_px: CROSSHAIR_ARM * 0.25,
             otrack_enabled: false,
             tracking_points: Vec::new(),
+            tracking_dirs: Vec::new(),
             last_snap_world: None,
             dwell_since: None,
             dwell_acquired: false,
@@ -201,6 +209,7 @@ impl Snapper {
     pub fn update_otrack_dwell(
         &mut self,
         snap_world: Option<Vec3>,
+        wires: &[WireModel],
         view_rot: glam::Mat4,
         eye: glam::DVec3,
         bounds: iced::Rectangle,
@@ -220,6 +229,9 @@ impl Snapper {
 
         match snap_world {
             None => {
+                // Leaving all geometry: capture the point we were dwelling on if
+                // it qualified, before the reset loses it.
+                self.acquire_on_leave(now, DWELL_MS, wires);
                 self.last_snap_world = None;
                 self.dwell_since = None;
                 self.dwell_acquired = false;
@@ -242,7 +254,7 @@ impl Snapper {
                     if !self.dwell_acquired && elapsed >= DWELL_MS {
                         self.dwell_acquired = true;
                         // Dwelling over an already-acquired point removes it;
-                        // otherwise acquire it (max 4 tracked points).
+                        // otherwise acquire it.
                         let existing = self.tracking_points.iter().position(|t| {
                             let d = (*t - p).length();
                             d < self.grid_spacing * 0.1
@@ -250,16 +262,18 @@ impl Snapper {
                         match existing {
                             Some(idx) => {
                                 self.tracking_points.remove(idx);
-                            }
-                            None => {
-                                if self.tracking_points.len() >= 4 {
-                                    self.tracking_points.remove(0);
+                                if idx < self.tracking_dirs.len() {
+                                    self.tracking_dirs.remove(idx);
                                 }
-                                self.tracking_points.push(p);
                             }
+                            None => self.acquire_tracking_point(p, wires),
                         }
                     }
                 } else {
+                    // Moved to a different snap point: capture the previous one
+                    // first if it was dwelt on long enough, so a pause-then-drag
+                    // gesture reliably acquires it even without in-place events.
+                    self.acquire_on_leave(now, DWELL_MS, wires);
                     self.last_snap_world = Some(p);
                     self.dwell_since = Some(now);
                     self.dwell_acquired = false;
@@ -268,10 +282,54 @@ impl Snapper {
         }
     }
 
+    /// Add `p` as a tracking point (capturing its corner edge directions) unless
+    /// it is already tracked; drops the oldest when the 4-point cap is reached.
+    /// Edge directions are scanned once here, at acquisition, so OTRACK can align
+    /// to a segment's extension without rescanning geometry per move (#219).
+    fn acquire_tracking_point(&mut self, p: Vec3, wires: &[WireModel]) {
+        if self
+            .tracking_points
+            .iter()
+            .any(|t| (*t - p).length() < self.grid_spacing * 0.1)
+        {
+            return;
+        }
+        if self.tracking_points.len() >= 4 {
+            self.tracking_points.remove(0);
+            if !self.tracking_dirs.is_empty() {
+                self.tracking_dirs.remove(0);
+            }
+        }
+        self.tracking_points.push(p);
+        self.tracking_dirs.push(edge_dirs_at(p, wires));
+    }
+
+    /// If the cursor dwelt on a snap point long enough but the in-place check
+    /// never fired (a perfectly still cursor emits no move events, so the timer
+    /// is only re-examined once the cursor moves off), acquire it now as the
+    /// cursor leaves. This makes "pause on a corner, then drag along its edge"
+    /// reliably capture the corner (#219).
+    fn acquire_on_leave(&mut self, now: Instant, dwell_ms: u128, wires: &[WireModel]) {
+        if self.dwell_acquired {
+            return; // already handled by the in-place branch
+        }
+        let Some(prev) = self.last_snap_world else {
+            return;
+        };
+        let elapsed = self
+            .dwell_since
+            .map_or(0, |t| now.duration_since(t).as_millis());
+        if elapsed >= dwell_ms {
+            self.acquire_tracking_point(prev, wires);
+        }
+    }
+
     /// Project the cursor onto a tracking ray emanating from one of the
     /// acquired tracking points, in the XY plane. Without `polar_step_deg` the
     /// rays are horizontal / vertical (0° / 90°); with it, every polar
-    /// increment is a candidate so the user can track along POLAR angles.
+    /// increment is a candidate so the user can track along POLAR angles. Each
+    /// acquired corner also contributes a ray along its own edge directions, so
+    /// pulling the cursor along a segment's extension locks to that line (#219).
     ///
     /// When the cursor sits near the crossing of two active vectors from
     /// different origins the intersection point wins, so the cursor locks onto
@@ -289,6 +347,10 @@ impl Snapper {
         bounds: iced::Rectangle,
         polar_step_deg: Option<f32>,
         last_point: Option<Vec3>,
+        // Ortho on: the axis from `last_point` is a hard lock. Only crossings of
+        // an acquired ray with that axis lock; single tracking rays are
+        // suppressed so the cursor can't leave the ortho axis. (#218)
+        ortho: bool,
         // UCS→world rotation: tracking rays run along the UCS axes, matching
         // ortho/polar. Identity = world-aligned rays.
         ucs: glam::Mat4,
@@ -340,11 +402,26 @@ impl Snapper {
                     group: gi,
                 });
             }
+            // Extension rays along the corner's own edges (world-space geometry
+            // directions — already oriented, no UCS rotation). Included in the
+            // single-ray set so pulling the cursor along a segment's extension
+            // locks to it. (#219)
+            if let Some(edirs) = self.tracking_dirs.get(gi) {
+                for &d in edirs {
+                    rays.push(Ray {
+                        origin: tp,
+                        dir: d,
+                        group: gi,
+                    });
+                }
+            }
         }
-        // OTRACK rays come first; polar rays (appended below) only participate
-        // in intersection locking, never in single-ray fallback.
+        // OTRACK rays come first; the auxiliary rays appended below (polar from
+        // last_point, ortho axis from last_point) only participate in
+        // intersection locking, never in single-ray fallback.
         let otrack_ray_count = rays.len();
         const POLAR_GROUP: usize = usize::MAX;
+        const ORTHO_GROUP: usize = usize::MAX - 1;
         if let (Some(step), Some(lp)) = (polar_step_deg.filter(|s| *s > 1e-3), last_point) {
             let mut a = 0.0_f32;
             while a < 180.0 - 1e-3 {
@@ -357,12 +434,30 @@ impl Snapper {
                 a += step;
             }
         }
+        // Ortho axis rays from `last_point`, so a tracking ray crossing the
+        // ortho axis locks on-axis (the useful corner-finding case). (#218)
+        let ortho_lock = ortho && last_point.is_some();
+        if let (true, Some(lp)) = (ortho_lock, last_point) {
+            for &adeg in &[0.0_f32, 90.0] {
+                let ar = adeg.to_radians();
+                rays.push(Ray {
+                    origin: lp,
+                    dir: ucs.transform_vector3(Vec3::new(ar.cos(), ar.sin(), 0.0)),
+                    group: ORTHO_GROUP,
+                });
+            }
+        }
 
         // ── Intersection lock — crossing of two vectors from distinct origins.
         let mut best_x: Option<(f32, OtrackHit)> = None;
         for i in 0..rays.len() {
             for j in (i + 1)..rays.len() {
                 if rays[i].group == rays[j].group {
+                    continue;
+                }
+                // Under an ortho lock only crossings that involve the ortho axis
+                // are valid — every other crossing lies off it. (#218)
+                if ortho_lock && rays[i].group != ORTHO_GROUP && rays[j].group != ORTHO_GROUP {
                     continue;
                 }
                 let Some(x) =
@@ -372,8 +467,9 @@ impl Snapper {
                 };
                 let sd = screen_dist(x);
                 if sd < r && best_x.as_ref().map_or(true, |(bd, _)| sd < *bd) {
-                    // Report an OTRACK ray as base/dir for typed-distance entry.
-                    let ot = if rays[i].group != POLAR_GROUP {
+                    // Report an acquired tracking ray (not an auxiliary
+                    // last_point ray) as base/dir for typed-distance entry.
+                    let ot = if rays[i].group != POLAR_GROUP && rays[i].group != ORTHO_GROUP {
                         &rays[i]
                     } else {
                         &rays[j]
@@ -393,6 +489,14 @@ impl Snapper {
         }
         if let Some((_, h)) = best_x {
             return Some(h);
+        }
+
+        // With Ortho on and a base point, the axis is a hard lock: no single
+        // tracking ray may pull the cursor off it. Only crossings with the
+        // ortho axis (handled above) lock; otherwise defer to the caller's
+        // ortho constraint. (#218)
+        if ortho_lock {
+            return None;
         }
 
         // ── Single-ray alignment (OTRACK rays only) ──
@@ -424,6 +528,7 @@ impl Snapper {
     /// Clear all acquired tracking points (e.g. when command ends).
     pub fn clear_tracking(&mut self) {
         self.tracking_points.clear();
+        self.tracking_dirs.clear();
         self.last_snap_world = None;
         self.dwell_since = None;
         self.dwell_acquired = false;
@@ -451,6 +556,7 @@ impl Snapper {
             osnap_radius_px: self.osnap_radius_px,
             otrack_enabled: false,
             tracking_points: Vec::new(),
+            tracking_dirs: Vec::new(),
             last_snap_world: None,
             dwell_since: None,
             dwell_acquired: false,
@@ -1060,6 +1166,56 @@ fn snap_priority(t: SnapType) -> u8 {
 }
 
 // ── Geometric helpers ─────────────────────────────────────────────────────
+
+/// Line directions of every wire segment that has an endpoint at `p` (an
+/// acquired corner), deduped by near-parallelism and capped. OTRACK offers an
+/// alignment ray along each so the cursor can track a segment's extension, not
+/// just the ortho/polar axes (#219). Scanned once, at acquisition — not per
+/// move. Empty when `p` is not a segment endpoint (midpoint / centre / node).
+fn edge_dirs_at(p: Vec3, wires: &[WireModel]) -> Vec<Vec3> {
+    // The acquired point is an f32 truncation of the true (f64) vertex, so its
+    // error grows with coordinate magnitude (~1 ULP ≈ 1.2e-7·mag). Scale the
+    // endpoint-match tolerance to a few multiples of that, with a tight floor
+    // near the origin — a fixed fraction would span metres at UTM scale and
+    // match unrelated vertices, while a magnitude-blind floor would miss the
+    // corner once f32 rounding exceeds it.
+    let tol = 1e-4_f32.max(4e-7 * p.x.abs().max(p.y.abs()));
+    let tol2 = (tol * tol) as f64;
+    let pd = p.as_dvec3();
+    let mut dirs: Vec<Vec3> = Vec::new();
+    'outer: for wire in wires {
+        let n = wire.points.len();
+        if n < 2 {
+            continue;
+        }
+        for i in 0..n - 1 {
+            let a = wp_f64(wire, i);
+            let b = wp_f64(wire, i + 1);
+            if !a.x.is_finite() || !b.x.is_finite() {
+                continue; // NaN sentinel separates sub-paths
+            }
+            if (a - pd).length_squared() >= tol2 && (b - pd).length_squared() >= tol2 {
+                continue; // neither endpoint is the acquired corner
+            }
+            let seg = b - a;
+            let l = (seg.x * seg.x + seg.y * seg.y).sqrt();
+            if l < 1e-9 {
+                continue;
+            }
+            let d = Vec3::new((seg.x / l) as f32, (seg.y / l) as f32, 0.0);
+            // Skip a direction already present (parallel within ~0.5°); the ray
+            // is bidirectional, so opposite signs are the same alignment line.
+            if dirs.iter().any(|e| (e.x * d.x + e.y * d.y).abs() > 0.99996) {
+                continue;
+            }
+            dirs.push(d);
+            if dirs.len() >= 6 {
+                break 'outer;
+            }
+        }
+    }
+    dirs
+}
 
 /// Reconstruct the absolute f64 position of wire vertex `i` from its
 /// double-single high/low pair. At UTM-scale coordinates the `points` (high)

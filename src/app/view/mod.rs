@@ -332,28 +332,60 @@ impl OpenCADStudio {
 
             // OST tracking points → screen positions, projected relative-to-eye
             // so they stay precise at UTM-scale coordinates (the full
-            // view-projection cancels catastrophically in f32).
-            let ost_points: Vec<crate::ui::overlay::OstTrackPoint> = if self.snapper.otrack_enabled {
-                let (view_rot, eye) = {
-                    let cam = tab.scene.camera.borrow();
-                    (cam.view_proj_rte(vp_bounds), cam.eye())
+            // view-projection cancels catastrophically in f32). Must project
+            // through the active pane's camera at its rect (canvas offset
+            // included) — like the grips and UCS icon above — or the marker
+            // lands in the wrong place (tiled layout) or off-screen (floating
+            // viewport). Without the `ob.x/ob.y` offset it silently vanishes.
+            // Shared OTRACK projection basis: the active pane's camera + rect
+            // (canvas offset included), matching the grips / UCS icon above.
+            let otrack_proj: Option<(glam::Mat4, glam::DVec3, iced::Rectangle)> =
+                if self.snapper.otrack_enabled {
+                    Some(
+                        if let Some((vp_cam, full)) = tab.scene.viewport_edit_frame((vw, vh)) {
+                            (vp_cam.view_proj_rte(full), vp_cam.eye(), full)
+                        } else {
+                            let cam = tab.scene.camera.borrow();
+                            (cam.view_proj_rte(vp_bounds), cam.eye(), vp_bounds)
+                        },
+                    )
+                } else {
+                    None
                 };
-                self.snapper
-                    .tracking_points
-                    .iter()
-                    .map(|&wp| {
-                        let ndc = view_rot.project_point3((wp.as_dvec3() - eye).as_vec3());
-                        crate::ui::overlay::OstTrackPoint {
-                            screen: iced::Point::new(
-                                (ndc.x + 1.0) * 0.5 * vp_bounds.width,
-                                (1.0 - ndc.y) * 0.5 * vp_bounds.height,
-                            ),
-                        }
-                    })
-                    .collect()
-            } else {
-                vec![]
-            };
+            let ost_project =
+                |w: glam::Vec3, view_rot: glam::Mat4, eye: glam::DVec3, ob: iced::Rectangle| {
+                    let ndc = view_rot.project_point3((w.as_dvec3() - eye).as_vec3());
+                    iced::Point::new(
+                        ob.x + (ndc.x + 1.0) * 0.5 * ob.width,
+                        ob.y + (1.0 - ndc.y) * 0.5 * ob.height,
+                    )
+                };
+            let ost_points: Vec<crate::ui::overlay::OstTrackPoint> =
+                if let Some((view_rot, eye, ob)) = otrack_proj {
+                    self.snapper
+                        .tracking_points
+                        .iter()
+                        .filter_map(|&wp| {
+                            let s = ost_project(wp, view_rot, eye, ob);
+                            (s.x.is_finite() && s.y.is_finite())
+                                .then_some(crate::ui::overlay::OstTrackPoint { screen: s })
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                };
+            // The active alignment vector: a dashed guide from the acquired
+            // tracking point through the locked cursor, so the user sees the
+            // extension / tracking line they are snapped to (#219).
+            let otrack_line: Option<(iced::Point, iced::Point)> =
+                match (otrack_proj, self.otrack_active) {
+                    (Some((view_rot, eye, ob)), Some((base, _dir))) => {
+                        let b = ost_project(base, view_rot, eye, ob);
+                        let a = ost_project(tab.last_cursor_world, view_rot, eye, ob);
+                        (b.x.is_finite() && a.x.is_finite()).then_some((b, a))
+                    }
+                    _ => None,
+                };
 
             // Model-space pane dividers (none in paper / single-pane layouts).
             let dividers = if !is_paper {
@@ -404,7 +436,7 @@ impl OpenCADStudio {
                 grips,
                 ucs_icons,
                 ost_points,
-                tab.last_cursor_screen,
+                otrack_line,
                 !is_paper && self.show_viewcube,
                 dividers,
                 pane_move_rect,
