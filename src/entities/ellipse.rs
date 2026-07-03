@@ -269,7 +269,24 @@ fn apply_grip(ell: &mut Ellipse, grip_id: usize, apply: GripApply) {
                 let dx = p.x as f64 - ell.center.x;
                 let dy = p.y as f64 - ell.center.y;
                 let dist = (dx * dx + dy * dy).sqrt();
-                ell.minor_axis_ratio = (dist / major_len).clamp(0.001, 1.0);
+                if dist <= major_len {
+                    // Minor axis stays the shorter one: just update the ratio.
+                    ell.minor_axis_ratio = (dist / major_len).clamp(0.001, 1.0);
+                } else if dist > 1e-10 {
+                    // Dragged past the major length. Rather than clamping (which
+                    // pins the minor grip at the major radius), rotate the
+                    // definition: the minor direction becomes the new major axis
+                    // so the stored ratio stays <= 1.0 as the file format requires.
+                    let perp_x = -ell.major_axis.y;
+                    let perp_y = ell.major_axis.x;
+                    let perp_len = (perp_x * perp_x + perp_y * perp_y).sqrt();
+                    if perp_len > 1e-10 {
+                        let s = dist / perp_len;
+                        ell.major_axis.x = perp_x * s;
+                        ell.major_axis.y = perp_y * s;
+                        ell.minor_axis_ratio = (major_len / dist).clamp(0.001, 1.0);
+                    }
+                }
             }
         }
         _ => {}
