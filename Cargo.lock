@@ -71,7 +71,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 [[package]]
 name = "acadrust"
 version = "0.4.0"
-source = "git+https://github.com/HakanSeven12/acadrust?branch=main#6d5c47b789355a36f2b07d520de0d587898cf4a5"
+source = "git+https://github.com/HakanSeven12/acadrust?branch=main#063da6f23ca151a0b609b38daec51678b809744b"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
