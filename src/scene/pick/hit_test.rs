@@ -90,7 +90,51 @@ pub fn click_hit<'a>(
         }
     }
 
-    best
+    if best.is_some() {
+        return best;
+    }
+
+    // No edge close enough. Mesh entities (PolyfaceMesh / PolygonMesh / SubD
+    // Mesh) carry their shaded faces as `fill_tris`; test those so a mesh is
+    // selectable by clicking its surface — not only its thin edges — the way a
+    // 3D solid is. Same projected-triangle containment as `mesh_click_hit`,
+    // front-most wins.
+    let mut best_fill: Option<(f32, &str)> = None;
+    for wire in wires {
+        if wire.fill_tris.is_empty() {
+            continue;
+        }
+        let mut t = 0;
+        while t + 2 < wire.fill_tris.len() {
+            let mut sp = [Point::ORIGIN; 3];
+            let mut depth = 0.0f32;
+            for j in 0..3 {
+                let k = t + j;
+                let hi = wire.fill_tris[k];
+                let lo = wire.fill_tris_low.get(k).copied().unwrap_or([0.0; 3]);
+                let world = glam::DVec3::new(
+                    hi[0] as f64 + lo[0] as f64,
+                    hi[1] as f64 + lo[1] as f64,
+                    hi[2] as f64 + lo[2] as f64,
+                );
+                let ndc = view_rot.project_point3((world - eye).as_vec3());
+                sp[j] = Point::new(
+                    (ndc.x + 1.0) * 0.5 * bounds.width,
+                    (1.0 - ndc.y) * 0.5 * bounds.height,
+                );
+                depth += ndc.z;
+            }
+            t += 3;
+            if point_in_polygon(cursor, &sp) {
+                let d = depth / 3.0;
+                if best_fill.map_or(true, |(bd, _)| d < bd) {
+                    best_fill = Some((d, wire.name.as_str()));
+                }
+                break;
+            }
+        }
+    }
+    best_fill.map(|(_, n)| n)
 }
 
 /// Like `click_hit` but returns every wire within the click threshold,
