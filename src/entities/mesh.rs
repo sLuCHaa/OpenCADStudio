@@ -8,6 +8,134 @@ use crate::scene::convert::acad_to_truck::{TruckEntity, TruckObject};
 use crate::scene::model::object::{GripApply, GripDef, PropSection};
 use crate::scene::model::wire_model::SnapHint;
 
+/// Triangulate a planar (possibly concave) polygon into a flat triangle-soup
+/// (3 vertices per triangle), preserving the polygon's winding. A simple fan
+/// from vertex 0 is only valid for convex faces — a concave face (e.g. an
+/// L-shaped mesh face) fans into triangles that spill outside the outline. Ear
+/// clipping handles both. Falls back to a fan when the polygon is degenerate.
+fn triangulate_planar(poly: &[[f64; 3]]) -> Vec<[f64; 3]> {
+    let n = poly.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    if n == 3 {
+        return vec![poly[0], poly[1], poly[2]];
+    }
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let fan = || {
+        let mut out = Vec::new();
+        for i in 1..n - 1 {
+            out.push(poly[0]);
+            out.push(poly[i]);
+            out.push(poly[i + 1]);
+        }
+        out
+    };
+    // Face normal via Newell's method (robust for near-planar polygons).
+    let mut normal = [0.0f64; 3];
+    for i in 0..n {
+        let a = poly[i];
+        let b = poly[(i + 1) % n];
+        normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+        normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+        normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    let nlen = dot(normal, normal).sqrt();
+    if nlen < 1e-12 {
+        return fan();
+    }
+    let normal = [normal[0] / nlen, normal[1] / nlen, normal[2] / nlen];
+    // Orthonormal in-plane basis.
+    let seed = if normal[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+    let mut u = cross(seed, normal);
+    let ul = dot(u, u).sqrt();
+    if ul < 1e-12 {
+        return fan();
+    }
+    u = [u[0] / ul, u[1] / ul, u[2] / ul];
+    let v = cross(normal, u);
+    let p2: Vec<[f64; 2]> = poly.iter().map(|&p| [dot(p, u), dot(p, v)]).collect();
+    // Signed area → winding (CCW when positive in the (u, v) frame).
+    let mut area = 0.0;
+    for i in 0..n {
+        let a = p2[i];
+        let b = p2[(i + 1) % n];
+        area += a[0] * b[1] - b[0] * a[1];
+    }
+    let ccw = area > 0.0;
+    let tri_area2 = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    };
+    let in_tri = |p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        let d1 = tri_area2(a, b, p);
+        let d2 = tri_area2(b, c, p);
+        let d3 = tri_area2(c, a, p);
+        let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+        let pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+        !(neg && pos)
+    };
+    let mut idx: Vec<usize> = (0..n).collect();
+    let mut out: Vec<[f64; 3]> = Vec::with_capacity((n - 2) * 3);
+    let mut guard = 0usize;
+    while idx.len() > 3 && guard < n * n {
+        guard += 1;
+        let m = idx.len();
+        let mut clipped = false;
+        for k in 0..m {
+            let i0 = idx[(k + m - 1) % m];
+            let i1 = idx[k];
+            let i2 = idx[(k + 1) % m];
+            let (a, b, c) = (p2[i0], p2[i1], p2[i2]);
+            let convex = if ccw { tri_area2(a, b, c) > 0.0 } else { tri_area2(a, b, c) < 0.0 };
+            if !convex {
+                continue;
+            }
+            let mut contains = false;
+            for &j in &idx {
+                if j == i0 || j == i1 || j == i2 {
+                    continue;
+                }
+                if in_tri(p2[j], a, b, c) {
+                    contains = true;
+                    break;
+                }
+            }
+            if contains {
+                continue;
+            }
+            out.push(poly[i0]);
+            out.push(poly[i1]);
+            out.push(poly[i2]);
+            idx.remove(k);
+            clipped = true;
+            break;
+        }
+        if !clipped {
+            // No ear found (self-intersecting / numerically degenerate) — bail
+            // to a fan of the remainder rather than loop forever.
+            for i in 1..idx.len() - 1 {
+                out.push(poly[idx[0]]);
+                out.push(poly[idx[i]]);
+                out.push(poly[idx[i + 1]]);
+            }
+            return out;
+        }
+    }
+    if idx.len() == 3 {
+        out.push(poly[idx[0]]);
+        out.push(poly[idx[1]]);
+        out.push(poly[idx[2]]);
+    }
+    out
+}
+
 // ── Face3D ────────────────────────────────────────────────────────────────────
 
 fn v3(v: &acadrust::types::Vector3) -> [f64; 3] {
@@ -389,13 +517,9 @@ impl TruckConvertible for PolyfaceMesh {
             // Close the face polygon.
             pts.push(verts[0]);
 
-            // Fan-triangulate the face for solid fill.
+            // Ear-clip the face for solid fill (handles concave faces).
             if verts.len() >= 3 {
-                for i in 1..(verts.len() - 1) {
-                    fill_tris.push(verts[0]);
-                    fill_tris.push(verts[i]);
-                    fill_tris.push(verts[i + 1]);
-                }
+                fill_tris.extend(triangulate_planar(&verts));
             }
         }
 
@@ -548,29 +672,13 @@ impl TruckConvertible for Mesh {
             }
         }
 
-        // Fan-triangulate each face into fill_tris so shaded views render
-        // the mesh as a solid surface.
+        // Ear-clip each face into fill_tris so shaded views render the mesh as
+        // a solid surface (fan triangulation spills outside concave faces).
         let mut fill_tris: Vec<[f64; 3]> = Vec::new();
         for face in &self.faces {
-            if face.vertices.len() < 3 {
-                continue;
-            }
-            let v0 = match get(face.vertices[0]) {
-                Some(p) => p,
-                None => continue,
-            };
-            for tri in 1..(face.vertices.len() - 1) {
-                let v1 = match get(face.vertices[tri]) {
-                    Some(p) => p,
-                    None => continue,
-                };
-                let v2 = match get(face.vertices[tri + 1]) {
-                    Some(p) => p,
-                    None => continue,
-                };
-                fill_tris.push(v0);
-                fill_tris.push(v1);
-                fill_tris.push(v2);
+            let verts: Vec<[f64; 3]> = face.vertices.iter().filter_map(|&vi| get(vi)).collect();
+            if verts.len() >= 3 {
+                fill_tris.extend(triangulate_planar(&verts));
             }
         }
 
@@ -664,5 +772,42 @@ impl Transformable for Mesh {
                 crate::scene::view::transform::reflect_xy_point(&mut v.x, &mut v.y, p1, p2);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod triangulate_tests {
+    use super::triangulate_planar;
+
+    fn poly_area2d(p: &[[f64; 2]]) -> f64 {
+        let n = p.len();
+        let mut a = 0.0;
+        for i in 0..n {
+            let b = p[(i + 1) % n];
+            a += p[i][0] * b[1] - b[0] * p[i][1];
+        }
+        (a * 0.5).abs()
+    }
+    fn tri_area(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
+        // area in XY plane (test polygons are in Z=0)
+        (((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) * 0.5).abs()
+    }
+
+    #[test]
+    fn concave_l_shape_no_spillover() {
+        // L-shaped hexagon (concave at the inner corner).
+        let poly: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 2.0, 0.0],
+            [2.0, 2.0, 0.0], [2.0, 4.0, 0.0], [0.0, 4.0, 0.0],
+        ];
+        let p2: Vec<[f64; 2]> = poly.iter().map(|p| [p[0], p[1]]).collect();
+        let want = poly_area2d(&p2); // = 12.0
+        let tris = triangulate_planar(&poly);
+        assert_eq!(tris.len() % 3, 0);
+        assert_eq!(tris.len() / 3, poly.len() - 2, "expected n-2 triangles");
+        let got: f64 = tris.chunks(3).map(|t| tri_area(t[0], t[1], t[2])).sum();
+        eprintln!("concave L: want_area={want} got_area={got} tris={}", tris.len() / 3);
+        // Fan would overshoot (triangles outside the L). Ear clip = exact.
+        assert!((got - want).abs() < 1e-6, "triangle area {got} != polygon area {want} (spillover)");
     }
 }
