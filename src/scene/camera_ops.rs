@@ -636,6 +636,30 @@ impl Scene {
         if self.current_layout != "Model" {
             wires.extend(self.viewport_content_wires(layout_block, None, None));
         }
+        // Ray / XLine tessellate as ±DISPLAY_EXTENT display segments
+        // (entities/ray.rs) — their endpoints are rendering artifacts, not
+        // drawing extent. A construction line through the drawing defeats
+        // both rejects below: its centroid sits at the base point (inside
+        // the consensus cluster), and in a fresh drawing `local_extent_max`
+        // is still the 1e9 default, so the far points pass the `lim` filter
+        // too (issue #284). Exclude them up front — matching AutoCAD, where
+        // infinite lines never contribute to ZOOM Extents — and fall back
+        // to their base points if the drawing holds nothing else.
+        let mut infinite_base_pts: Vec<glam::Vec3> = Vec::new();
+        wires.retain(|w| {
+            let is_infinite = Self::handle_from_wire_name(&w.name)
+                .and_then(|h| self.document.get_entity(h))
+                .map(|e| matches!(e, EntityType::XLine(_) | EntityType::Ray(_)))
+                .unwrap_or(false);
+            if is_infinite {
+                infinite_base_pts.extend(
+                    w.key_vertices
+                        .iter()
+                        .map(|v| glam::Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32)),
+                );
+            }
+            !is_infinite
+        });
         // 3D solids render as meshes, not wires, so collect their (offset-rel)
         // XY AABBs separately — a drawing of only solids has no wires to fit.
         let mesh_aabbs: Vec<[f32; 4]> = self
@@ -650,7 +674,7 @@ impl Scene {
             .map(|(_, set)| set.world_aabb)
             .filter(|a| a[0].is_finite() && a[2].is_finite())
             .collect();
-        if wires.is_empty() && mesh_aabbs.is_empty() {
+        if wires.is_empty() && mesh_aabbs.is_empty() && infinite_base_pts.is_empty() {
             return;
         }
 
@@ -687,7 +711,7 @@ impl Scene {
                 });
             }
         }
-        if cents.is_empty() && mesh_aabbs.is_empty() {
+        if cents.is_empty() && mesh_aabbs.is_empty() && infinite_base_pts.is_empty() {
             return;
         }
 
@@ -756,6 +780,14 @@ impl Scene {
         for [ax, ay, bx, by] in &mesh_aabbs {
             min = min.min(glam::Vec3::new(*ax, *ay, 0.0));
             max = max.max(glam::Vec3::new(*bx, *by, 0.0));
+        }
+        // Drawing holds only infinite construction geometry: fit the view to
+        // its base points rather than leaving the camera unchanged.
+        if min.x > max.x {
+            for p in &infinite_base_pts {
+                min = min.min(*p);
+                max = max.max(*p);
+            }
         }
         // If no usable points found, leave the camera unchanged.
         if min.x > max.x {
