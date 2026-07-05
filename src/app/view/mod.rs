@@ -1462,6 +1462,16 @@ impl OpenCADStudio {
         } else {
             Subscription::none()
         };
+        // Interaction LOD: while the view is (or just was) navigating, keep
+        // requesting frames a little past the settle point. Panning itself is
+        // driven by input events, but once the cursor stops no event would fire
+        // the one full-quality frame that re-renders hatches — this tick does,
+        // then the scene-render cache holds it and the subscription auto-stops.
+        let nav_settle = if self.tabs[self.active_tab].scene.is_settling() {
+            window::frames().map(Message::Tick)
+        } else {
+            Subscription::none()
+        };
         // Blink the MText preview caret while the editor is open.
         let caret_blink = if self.mtext_editor.is_some() {
             iced::time::every(std::time::Duration::from_millis(530))
@@ -1493,6 +1503,7 @@ impl OpenCADStudio {
             history_tick,
             grip_dwell,
             hover_dwell,
+            nav_settle,
             caret_blink,
             web_fonts,
             autosave,

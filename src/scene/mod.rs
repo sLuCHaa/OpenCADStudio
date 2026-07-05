@@ -901,6 +901,13 @@ pub struct Scene {
     /// (re)built, otherwise the held value. `build_primitive` reads it right
     /// after the call to gate GPU wire re-upload. 0 = none yet.
     pub(crate) last_model_wire_gen: std::cell::Cell<u64>,
+    /// Interaction-LOD state: `camera_generation` seen on the previous frame and
+    /// the wall time it last changed. Used to detect "the view is actively being
+    /// panned / zoomed / orbited" so the expensive per-pixel hatch pass can be
+    /// suppressed while moving and rendered once on settle (held by the
+    /// scene-render cache). See [`Scene::navigating_lod`].
+    nav_last_gen: std::cell::Cell<u64>,
+    nav_changed_at: std::cell::Cell<Option<iced::time::Instant>>,
     /// Static-hold cache for the Model layout: the FULL, un-culled tessellation
     /// held resident and reused for every camera (the geometry is
     /// camera-independent — see `model_tile_wires_arc`). `(epoch, gen, wires)`;
@@ -1002,6 +1009,8 @@ impl Scene {
             last_tess_ms: std::cell::Cell::new(0.0),
             last_tess_wires: std::cell::Cell::new(0),
             last_model_wire_gen: std::cell::Cell::new(0),
+            nav_last_gen: std::cell::Cell::new(0),
+            nav_changed_at: std::cell::Cell::new(None),
             model_static_wires: RefCell::new(None),
             wire_force_nonce: std::cell::Cell::new(0),
             split_cache: RefCell::new(None),
@@ -1159,6 +1168,39 @@ impl Scene {
         self.selection_generation = self.selection_generation.wrapping_add(1);
     }
 
+    /// Milliseconds after the last camera change during which the view counts as
+    /// "actively navigating" for interaction-LOD purposes.
+    const NAV_SETTLE_MS: u128 = 130;
+
+    /// Interaction LOD: true while the view is actively being panned / zoomed /
+    /// orbited. Detected purely from `camera_generation` (bumped by every camera
+    /// move) plus a short settle timer, so no navigation call site needs to opt
+    /// in. Called on the render path; it stamps the change time as a side effect.
+    ///
+    /// While this is true the per-pixel hatch pass is skipped (it dominates the
+    /// GPU frame — a full-screen procedural pattern/boundary test). When it flips
+    /// back to false on settle, the frame renders hatches once and the
+    /// scene-render cache holds that image, so a still view is full quality.
+    pub fn navigating_lod(&self) -> bool {
+        let gen = self.camera_generation;
+        if gen != self.nav_last_gen.get() {
+            self.nav_last_gen.set(gen);
+            self.nav_changed_at.set(Some(iced::time::Instant::now()));
+        }
+        self.nav_changed_at
+            .get()
+            .map_or(false, |t| t.elapsed().as_millis() < Self::NAV_SETTLE_MS)
+    }
+
+    /// True for a short window around navigation — used by the subscription to
+    /// keep requesting frames just past the settle point so the one full-quality
+    /// (hatched) frame actually renders after the cursor stops, even when no
+    /// input event would otherwise trigger a redraw. Read-only (no side effect).
+    pub fn is_settling(&self) -> bool {
+        self.nav_changed_at
+            .get()
+            .map_or(false, |t| t.elapsed().as_millis() < Self::NAV_SETTLE_MS + 130)
+    }
 
     /// Re-evaluate every cached mesh's color through `render_style` so a
     /// Register a Model-tab solid: cache its truck B-rep (for boolean ops) and
