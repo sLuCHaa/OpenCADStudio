@@ -1446,6 +1446,19 @@ fn extension_bases_screen(
         if n < 2 {
             continue;
         }
+        // A closed curve (full circle / ellipse) has no meaningful extension:
+        // its tessellation chords point every which way, so one almost always
+        // has an outward extension that grazes the snapped point, drawing a
+        // spurious dashed guide radiating from the circle when the user only
+        // caught a plain line-line intersection (#276). Skip it — same closed
+        // signal (Quadrant hints, which arcs never carry) as the Endpoint snap.
+        if wire
+            .snap_pts
+            .iter()
+            .any(|(_, h)| matches!(h, SnapHint::Quadrant))
+        {
+            continue;
+        }
         // Match the extension snap: every segment can be extended past either
         // endpoint, so scan them all to find the base(s) the snapped point sits on.
         for i in 0..n - 1 {
