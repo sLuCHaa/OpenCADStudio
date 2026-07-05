@@ -200,9 +200,27 @@ impl CadCommand for LineCommand {
 
     fn on_mouse_move(&mut self, pt: DVec3) -> Option<WireModel> {
         let last = *self.points.last()?;
+        // With a deferred first tangent, slide the rubber band's start point
+        // around the circle so it stays tangent toward the moving cursor,
+        // instead of sticking at the provisional pick point. Keep the side the
+        // user first picked (nearest that hit) for a stable preview. (#274)
+        let start = match self.deferred_tangent {
+            Some((TangentObject::Circle { center, radius }, hit)) => {
+                point_circle_tangents(pt, center, radius)
+                    .map(|(t0, t1)| {
+                        if (t0 - hit).length() <= (t1 - hit).length() {
+                            t0
+                        } else {
+                            t1
+                        }
+                    })
+                    .unwrap_or(last)
+            }
+            _ => last,
+        };
         Some(WireModel::solid_f64(
             "rubber_band".to_string(),
-            vec![[last.x, last.y, last.z], [pt.x, pt.y, pt.z]],
+            vec![[start.x, start.y, start.z], [pt.x, pt.y, pt.z]],
             WireModel::CYAN,
             false,
         ))
