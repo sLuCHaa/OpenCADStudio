@@ -227,6 +227,8 @@ pub(super) struct OpenCADStudio {
     status_bar: StatusBar,
     cursor_pos: Point,
     vp_size: (f32, f32),
+    /// Full window size (w, h); used to anchor status-bar popups to their pill.
+    win_size: (f32, f32),
     snapper: Snapper,
     snap_popup_open: bool,
     scale_popup_open: bool,
@@ -1962,6 +1964,7 @@ impl OpenCADStudio {
             status_bar: StatusBar::new(),
             cursor_pos: Point::ORIGIN,
             vp_size: (1280.0, 720.0),
+            win_size: (1280.0, 720.0),
             snapper: Snapper::default(),
             snap_popup_open: false,
             scale_popup_open: false,

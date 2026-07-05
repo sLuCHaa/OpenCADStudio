@@ -21,7 +21,16 @@ pub const LAYOUT_RENAME_INPUT_ID: &str = "layout_rename_input";
 use crate::app::Message;
 use crate::snap::Snapper;
 use crate::ui::statusbar::statusbar_config::{StatusBarConfig, StatusPill};
-use crate::ui::wrap_bar::{WrapBar, WrapFlow};
+use crate::ui::wrap_bar::{PosReport, WrapBar, WrapFlow};
+
+// PosReport ids for anchoring each status-bar popup directly to its pill.
+pub const SB_OSNAP_ID: &str = "SB_OSNAP";
+pub const SB_SCALE_ID: &str = "SB_SCALE";
+pub const SB_UNITS_ID: &str = "SB_UNITS";
+pub const SB_ISOLATE_ID: &str = "SB_ISOLATE";
+pub const SB_FILTER_ID: &str = "SB_FILTER";
+pub const SB_MENU_ID: &str = "SB_MENU";
+pub const SB_LAYOUTLIST_ID: &str = "SB_LAYOUTLIST";
 
 #[derive(Clone, Default)]
 pub struct StatusBar {
@@ -189,7 +198,13 @@ impl StatusBar {
             );
         }
         if vis(StatusPill::Osnap) {
-            pills.push(osnap_btn(osnap_active, snapper.snap_enabled, popup_open).into());
+            pills.push(
+                PosReport::new(
+                    SB_OSNAP_ID,
+                    osnap_btn(osnap_active, snapper.snap_enabled, popup_open),
+                )
+                .into(),
+            );
         }
         if vis(StatusPill::Space) {
             pills.push(
@@ -201,16 +216,19 @@ impl StatusBar {
             );
         }
         if vis(StatusPill::Scale) {
-            pills.push(scale_element);
+            pills.push(PosReport::new(SB_SCALE_ID, scale_element).into());
         }
         if vis(StatusPill::Units) {
             pills.push(
-                tip(
-                    units_btn(
-                        crate::ui::popup::units_popup::unit_short(insertion_units),
-                        units_popup_open,
+                PosReport::new(
+                    SB_UNITS_ID,
+                    tip(
+                        units_btn(
+                            crate::ui::popup::units_popup::unit_short(insertion_units),
+                            units_popup_open,
+                        ),
+                        "Drawing Units (INSUNITS)\nClick to change",
                     ),
-                    "Drawing Units (INSUNITS)\nClick to change",
                 )
                 .into(),
             );
@@ -230,9 +248,12 @@ impl StatusBar {
         }
         if vis(StatusPill::Isolate) {
             pills.push(
-                tip(
-                    toggle_pill(crate::ui::icons::ST_ISOLATE, isolation_active, Message::ToggleIsolatePopup),
-                    "Isolate Objects\nClick for Isolate / Hide / End",
+                PosReport::new(
+                    SB_ISOLATE_ID,
+                    tip(
+                        toggle_pill(crate::ui::icons::ST_ISOLATE, isolation_active, Message::ToggleIsolatePopup),
+                        "Isolate Objects\nClick for Isolate / Hide / End",
+                    ),
                 )
                 .into(),
             );
@@ -248,13 +269,16 @@ impl StatusBar {
         }
         if vis(StatusPill::SelFilter) {
             pills.push(
-                tip(
-                    toggle_pill(
-                        crate::ui::icons::ST_FILTER,
-                        selection_filter_active,
-                        Message::ToggleSelectionFilterPopup,
+                PosReport::new(
+                    SB_FILTER_ID,
+                    tip(
+                        toggle_pill(
+                            crate::ui::icons::ST_FILTER,
+                            selection_filter_active,
+                            Message::ToggleSelectionFilterPopup,
+                        ),
+                        "Selection Filtering\nLimit which object types can be picked",
                     ),
-                    "Selection Filtering\nLimit which object types can be picked",
                 )
                 .into(),
             );
@@ -288,9 +312,12 @@ impl StatusBar {
         }
         // Customization handle: opens the pill show/hide menu.
         pills.push(
-            tip(
-                customize_btn(),
-                "Customization\nShow or hide status-bar items",
+            PosReport::new(
+                SB_MENU_ID,
+                tip(
+                    customize_btn(),
+                    "Customization\nShow or hide status-bar items",
+                ),
             )
             .into(),
         );
@@ -301,7 +328,7 @@ impl StatusBar {
         // wrap in their own flow; WrapBar stacks the two areas so a wrapped tab
         // never shares a row with a pill.
         let mut left: Vec<Element<'_, Message>> = Vec::new();
-        left.push(menu_btn.into());
+        left.push(PosReport::new(SB_LAYOUTLIST_ID, menu_btn).into());
         if show_layout_tabs {
             for name in layouts {
                 let is_active = name == current_layout;
@@ -408,41 +435,6 @@ fn tip_node<'a>(content: Element<'a, Message>, body: Element<'a, Message>) -> El
 /// A status-bar toggle, drawn as a tinted icon (issue #216: the old size-10
 /// text labels were too small to read). The name lives in the tooltip each
 /// call site already wraps it with.
-/// Approximate distance (px) from the window's right edge to the right edge of
-/// the Osnap button — used to anchor the OSNAP settings popup above the button
-/// instead of at the window corner (#248). The status-bar pills that follow
-/// Osnap are summed by estimated width (icon pills are fixed; labelled pills are
-/// approximate), honouring the user's per-pill visibility. iced gives the view
-/// no real layout metrics, so this positions the popup near the button rather
-/// than pixel-exact.
-pub fn osnap_popup_right_offset(config: &StatusBarConfig, viewport_count: usize) -> f32 {
-    const SP: f32 = 2.0; // right_status row spacing between pills
-    const TOGGLE: f32 = 33.0; // icon toggle pill (17px icon + [4,7] pad + border)
-    // Pills after Osnap, in bar order, with estimated widths.
-    let after = [
-        (StatusPill::Space, 58.0),
-        (StatusPill::Scale, 92.0),
-        (StatusPill::Units, 42.0),
-        (StatusPill::Transparency, TOGGLE),
-        (StatusPill::Isolate, TOGGLE),
-        (StatusPill::QuickProps, TOGGLE),
-        (StatusPill::SelFilter, TOGGLE),
-        (StatusPill::SelCycle, TOGGLE),
-        (StatusPill::Vp, 46.0),
-        (StatusPill::CleanScreen, TOGGLE),
-    ];
-    // Bar right margin + the always-present customization button.
-    let mut w = 6.0 + 30.0 + SP;
-    for (pill, pw) in after {
-        let shown =
-            config.is_visible(pill) && !(matches!(pill, StatusPill::Vp) && viewport_count == 0);
-        if shown {
-            w += pw + SP;
-        }
-    }
-    w
-}
-
 fn toggle_pill(icon: &'static [u8], active: bool, msg: Message) -> Element<'static, Message> {
     let color = if active { OSNAP_ON_TEXT } else { OSNAP_OFF_TEXT };
     button(crate::ui::icons::tinted(icon, 17.0, color))

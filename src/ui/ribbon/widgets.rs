@@ -12,7 +12,7 @@ use iced::widget::{button, column, container, row, svg, text, tooltip};
 use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
 
 use crate::app::Message;
-use crate::modules::{IconKind, ModuleEvent, RibbonGroup, RibbonItem, StyleKey, ToolDef};
+use crate::modules::{IconKind, ModuleEvent, RibbonItem, StyleKey, ToolDef};
 use crate::ui::wrap_bar::PosReport;
 use crate::ui::icons;
 use crate::ui::properties::{acad_color_display, LwItem};
@@ -744,9 +744,13 @@ pub(super) fn render_large<'a>(
             let tools_row3 = make_tool_row(row3);
 
             container(
-                column![combo_btn, tools_row2, tools_row3]
-                    .spacing(3)
-                    .align_x(iced::Left),
+                column![
+                    PosReport::new(LAYER_COMBO_ID, combo_btn),
+                    tools_row2,
+                    tools_row3
+                ]
+                .spacing(3)
+                .align_x(iced::Left),
             )
             .width(Length::Fixed(COMBO_W))
             .height(Fill)
@@ -864,9 +868,13 @@ pub(super) fn render_large<'a>(
             let lw_row = prop_row(LwItem(active_lineweight).to_string(), PROP_LW_ID, None);
 
             let combos = container(
-                column![color_row, lt_row, lw_row]
-                    .spacing(2)
-                    .align_x(iced::Left),
+                column![
+                    PosReport::new(PROP_COLOR_ID, color_row),
+                    PosReport::new(PROP_LINETYPE_ID, lt_row),
+                    PosReport::new(PROP_LW_ID, lw_row),
+                ]
+                .spacing(2)
+                .align_x(iced::Left),
             )
             .height(Fill)
             .align_y(iced::Center)
@@ -968,7 +976,7 @@ pub(super) fn render_large<'a>(
             };
 
             let mut col_items: Vec<Element<Message>> =
-                vec![container(row![combo_btn, items_panel].spacing(0))
+                vec![container(row![PosReport::new(*combo_id, combo_btn), items_panel].spacing(0))
                     .width(Fill)
                     .into()];
             for row_tools in rows {
@@ -989,108 +997,6 @@ pub(super) fn render_large<'a>(
         }
     }
 }
-
-// ── Dropdown position helpers ──────────────────────────────────────────────
-
-/// Calculate the left pixel offset of a dropdown button inside the ribbon tool area.
-pub(super) fn compute_dropdown_left(groups: &[RibbonGroup], open_id: &str) -> f32 {
-    let sum_with_spacing = |widths: &[f32]| -> f32 {
-        widths
-            .iter()
-            .enumerate()
-            .map(|(i, &w)| if i == 0 { w } else { 2.0 + w })
-            .sum::<f32>()
-    };
-    let next_item_x = |widths: &[f32]| -> f32 {
-        if widths.is_empty() {
-            0.0
-        } else {
-            sum_with_spacing(widths) + 2.0
-        }
-    };
-
-    let mut x = 0.0f32;
-
-    for (g_idx, group) in groups.iter().enumerate() {
-        if g_idx > 0 {
-            x += 1.0;
-        }
-        x += 4.0;
-
-        let mut row_widths: Vec<f32> = Vec::new();
-        let mut small_col_w: f32 = 0.0;
-        let mut small_col_n: usize = 0;
-
-        for item in &group.tools {
-            let is_large = matches!(
-                item,
-                RibbonItem::LargeTool(_)
-                    | RibbonItem::LargeDropdown { .. }
-                    | RibbonItem::LayerComboGroup { .. }
-                    | RibbonItem::PropertiesGroup { .. }
-                    | RibbonItem::StyleComboGroup { .. }
-            );
-            let id: &str = match item {
-                RibbonItem::LargeTool(t) => t.id,
-                RibbonItem::LargeDropdown { id, .. } => *id,
-                RibbonItem::Tool(t) => t.id,
-                RibbonItem::Dropdown { id, .. } => *id,
-                RibbonItem::LayerComboGroup { .. } => LAYER_COMBO_ID,
-                RibbonItem::PropertiesGroup { match_prop } => match_prop.id,
-                RibbonItem::StyleComboGroup { combo_id, .. } => combo_id,
-            };
-            let item_w = match item {
-                RibbonItem::LargeTool(_) | RibbonItem::LargeDropdown { .. } => LARGE_W,
-                RibbonItem::LayerComboGroup { .. } => LARGE_W * 2.5,
-                RibbonItem::PropertiesGroup { .. } => LARGE_W + 4.0 + 130.0,
-                RibbonItem::StyleComboGroup { .. } => LARGE_W * 2.3,
-                RibbonItem::Dropdown { .. } => SMALL_W + ARROW_W,
-                _ => SMALL_W,
-            };
-
-            if is_large {
-                if small_col_n > 0 {
-                    row_widths.push(small_col_w);
-                    small_col_w = 0.0;
-                    small_col_n = 0;
-                }
-                if id == open_id {
-                    return x + next_item_x(&row_widths);
-                }
-                row_widths.push(item_w);
-            } else {
-                if id == open_id {
-                    return x + next_item_x(&row_widths);
-                }
-                small_col_w = small_col_w.max(item_w);
-                small_col_n += 1;
-                if small_col_n == 3 {
-                    row_widths.push(small_col_w);
-                    small_col_w = 0.0;
-                    small_col_n = 0;
-                }
-            }
-        }
-
-        if small_col_n > 0 {
-            row_widths.push(small_col_w);
-        }
-        x += sum_with_spacing(&row_widths) + 4.0;
-    }
-
-    60.0
-}
-
-pub(super) fn compute_layer_combo_left(groups: &[RibbonGroup]) -> f32 {
-    compute_dropdown_left(groups, LAYER_COMBO_ID)
-}
-
-/// Left offset for a Properties combo dropdown.
-pub(super) fn compute_prop_combo_left(groups: &[RibbonGroup], _dd_id: &str) -> f32 {
-    let base = compute_dropdown_left(groups, "MATCHPROP");
-    base + LARGE_W + 4.0
-}
-
 
 // ── Message helpers ────────────────────────────────────────────────────────
 

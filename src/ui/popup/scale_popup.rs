@@ -3,7 +3,7 @@
 //! Rendered as a floating overlay above the status bar, same pattern as snap_popup.
 
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Length, Rectangle, Theme};
 
 use crate::app::Message;
 
@@ -20,6 +20,8 @@ pub fn scale_popup_overlay(
     current_anno_scale: f32,
     viewport_scale: Option<f64>,
     file_scales: Vec<(String, f32, f64)>,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
 ) -> Element<'static, Message> {
     let rows: Vec<Element<'static, Message>> = file_scales
         .into_iter()
@@ -52,17 +54,7 @@ pub fn scale_popup_overlay(
         })
         .width(Length::Fixed(120.0));
 
-    let positioned = container(panel)
-        .align_right(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            right: 4.0,
-            top: 0.0,
-            left: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    let positioned = super::position_statusbar_popup(panel.into(), pill, win, 120.0, true);
 
     mouse_area(positioned)
         .on_press(Message::CloseScalePopup)

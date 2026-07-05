@@ -4,7 +4,7 @@
 //! in the viewport right-click menu.
 
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Length, Rectangle, Theme};
 
 use crate::app::Message;
 
@@ -13,7 +13,12 @@ use crate::app::Message;
 ///
 /// - `has_selection`: enables Isolate / Hide (they act on the selection).
 /// - `isolation_active`: enables End Isolation (something is hidden).
-pub fn isolate_popup_overlay(has_selection: bool, isolation_active: bool) -> Element<'static, Message> {
+pub fn isolate_popup_overlay(
+    has_selection: bool,
+    isolation_active: bool,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
+) -> Element<'static, Message> {
     let rows = column![
         action_row(
             "Isolate Objects",
@@ -44,17 +49,7 @@ pub fn isolate_popup_overlay(has_selection: bool, isolation_active: bool) -> Ele
         })
         .width(Length::Fixed(160.0));
 
-    let positioned = container(panel)
-        .align_right(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            right: 4.0,
-            top: 0.0,
-            left: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    let positioned = super::position_statusbar_popup(panel.into(), pill, win, 160.0, true);
 
     mouse_area(positioned)
         .on_press(Message::CloseIsolatePopup)

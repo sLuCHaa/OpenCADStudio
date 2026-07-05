@@ -5,7 +5,7 @@
 use rustc_hash::FxHashSet as HashSet;
 
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Length, Rectangle, Theme};
 
 use crate::app::Message;
 
@@ -17,6 +17,8 @@ use crate::app::Message;
 pub fn selection_filter_popup_overlay(
     types: Vec<String>,
     excluded: &HashSet<String>,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
 ) -> Element<'static, Message> {
     // "Select All / Clear All" header, mirroring the OSNAP popup: Select All
     // clears every exclusion, Clear All excludes every present type.
@@ -70,17 +72,7 @@ pub fn selection_filter_popup_overlay(
         })
         .width(Length::Fixed(180.0));
 
-    let positioned = container(panel)
-        .align_right(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            right: 4.0,
-            top: 0.0,
-            left: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    let positioned = super::position_statusbar_popup(panel.into(), pill, win, 180.0, true);
 
     mouse_area(positioned)
         .on_press(Message::CloseSelectionFilterPopup)

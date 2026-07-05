@@ -2,7 +2,7 @@
 //! floating overlay above the status bar, same pattern as the scale picker.
 
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Length, Rectangle, Theme};
 
 use crate::app::Message;
 
@@ -37,7 +37,11 @@ pub fn unit_short(code: i16) -> &'static str {
 
 /// Full-screen overlay: transparent click-catcher + units list pinned
 /// bottom-right, above the status bar.
-pub fn units_popup_overlay(current: i16) -> Element<'static, Message> {
+pub fn units_popup_overlay(
+    current: i16,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
+) -> Element<'static, Message> {
     let rows: Vec<Element<'static, Message>> = UNITS
         .iter()
         .map(|&(code, label)| unit_row(label, code == current, Message::SetDrawingUnits(code)))
@@ -55,17 +59,7 @@ pub fn units_popup_overlay(current: i16) -> Element<'static, Message> {
         })
         .width(Length::Fixed(140.0));
 
-    let positioned = container(panel)
-        .align_right(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            right: 4.0,
-            top: 0.0,
-            left: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    let positioned = super::position_statusbar_popup(panel.into(), pill, win, 140.0, true);
 
     mouse_area(positioned)
         .on_press(Message::CloseUnitsPopup)

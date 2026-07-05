@@ -1302,6 +1302,7 @@ impl OpenCADStudio {
 
             Message::WindowResized(w, h) => {
                 self.vp_size = ((w - 440.0).max(200.0), h);
+                self.win_size = (w, h);
                 Task::none()
             }
 

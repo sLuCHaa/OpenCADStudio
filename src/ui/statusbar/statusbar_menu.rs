@@ -3,14 +3,18 @@
 //! above the status bar, same pattern as the scale picker.
 
 use iced::widget::{button, column, container, mouse_area, row, scrollable, text};
-use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Length, Rectangle, Theme};
 
 use crate::app::Message;
 use crate::ui::statusbar::statusbar_config::{StatusBarConfig, StatusPill};
 
 /// Full-screen overlay: transparent click-catcher + the menu panel pinned to
 /// the bottom-right, just above the status bar.
-pub fn statusbar_menu_overlay(config: &StatusBarConfig) -> Element<'static, Message> {
+pub fn statusbar_menu_overlay(
+    config: &StatusBarConfig,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
+) -> Element<'static, Message> {
     let rows: Vec<Element<'static, Message>> = StatusPill::ALL
         .iter()
         .map(|&pill| {
@@ -34,17 +38,8 @@ pub fn statusbar_menu_overlay(config: &StatusBarConfig) -> Element<'static, Mess
         })
         .width(Length::Fixed(200.0));
 
-    let positioned = container(panel)
-        .align_right(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            right: 4.0,
-            top: 0.0,
-            left: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    let positioned =
+        crate::ui::popup::position_statusbar_popup(panel.into(), pill, win, 200.0, true);
 
     mouse_area(positioned)
         .on_press(Message::CloseStatusBarMenu)
@@ -54,7 +49,12 @@ pub fn statusbar_menu_overlay(config: &StatusBarConfig) -> Element<'static, Mess
 /// Dropdown listing Model + every paper layout, opened from the leftmost
 /// hamburger. Pinned bottom-left just above the status bar; a click selects a
 /// layout (and closes), an outside click just closes.
-pub fn layout_list_overlay<'a>(layouts: &[String], current: &str) -> Element<'a, Message> {
+pub fn layout_list_overlay<'a>(
+    layouts: &[String],
+    current: &str,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
+) -> Element<'a, Message> {
     let rows: Vec<Element<'a, Message>> = layouts
         .iter()
         .map(|name| layout_row(name.clone(), name == current))
@@ -73,17 +73,9 @@ pub fn layout_list_overlay<'a>(layouts: &[String], current: &str) -> Element<'a,
         .width(Length::Fixed(200.0))
         .max_height(360.0);
 
-    let positioned = container(panel)
-        .align_left(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            left: 4.0,
-            top: 0.0,
-            right: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    // Hamburger is on the left → prefer left-aligned (grows right).
+    let positioned =
+        crate::ui::popup::position_statusbar_popup(panel.into(), pill, win, 200.0, false);
 
     mouse_area(positioned)
         .on_press(Message::CloseLayoutList)

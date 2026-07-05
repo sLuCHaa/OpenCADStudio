@@ -4,7 +4,7 @@
 //! inserted into the view stack when `snap_popup_open` is true.
 
 use iced::widget::{button, column, container, mouse_area, row, text};
-use iced::{Background, Border, Color, Element, Fill, Length, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Length, Rectangle, Theme};
 
 use crate::app::Message;
 use crate::snap::{SnapType, Snapper, ALL_SNAP_MODES};
@@ -12,7 +12,11 @@ use crate::snap::{SnapType, Snapper, ALL_SNAP_MODES};
 /// Returns a full-screen overlay element:
 ///   - a transparent click-catcher that closes the popup on outside click
 ///   - the popup panel pinned to the bottom-right (above the status bar)
-pub fn snap_popup_overlay<'a>(snapper: &'a Snapper, right_offset: f32) -> Element<'a, Message> {
+pub fn snap_popup_overlay<'a>(
+    snapper: &'a Snapper,
+    pill: Option<Rectangle>,
+    win: (f32, f32),
+) -> Element<'a, Message> {
     // ── Panel content ─────────────────────────────────────────────────────
     let all_on = snapper.all_on();
     let none_on = snapper.none_on();
@@ -55,23 +59,8 @@ pub fn snap_popup_overlay<'a>(snapper: &'a Snapper, right_offset: f32) -> Elemen
         })
         .width(Length::Fixed(PANEL_W));
 
-    // ── Position above the status bar, anchored by its bottom-LEFT corner at
-    // `right_offset` from the window's right edge (the Osnap button), so it
-    // opens up and to the right of the button. `align_right` positions by the
-    // panel's right edge, so pad by the anchor minus the panel width; clamp so
-    // a narrow bar can't push it off-screen. (#248)
-    let right = (right_offset - PANEL_W).max(4.0);
-    let positioned = container(panel)
-        .align_right(Fill)
-        .align_bottom(Fill)
-        .padding(Padding {
-            bottom: 27.0,
-            right,
-            top: 0.0,
-            left: 0.0,
-        })
-        .width(Fill)
-        .height(Fill);
+    // Anchored just above its pill, flipping horizontally to stay on screen.
+    let positioned = super::position_statusbar_popup(panel.into(), pill, win, PANEL_W, true);
 
     // ── Click-catcher: closes popup on any outside click ──────────────────
     mouse_area(positioned)

@@ -91,6 +91,33 @@ fn dropdown_backdrop<'a>(positioned: Element<'a, Message>) -> Element<'a, Messag
         .into()
 }
 
+/// Position a ribbon dropdown `panel` in a full-window container just below its
+/// widget, growing left or right per `align_right` (see [`Ribbon::dd_anchor`]).
+fn position_ribbon_dropdown<'a>(
+    panel: Element<'a, Message>,
+    align_right: bool,
+    h_pad: f32,
+    top: f32,
+) -> Element<'a, Message> {
+    let pad = Padding {
+        top,
+        bottom: 0.0,
+        left: if align_right { 0.0 } else { h_pad },
+        right: if align_right { h_pad } else { 0.0 },
+    };
+    let c = container(panel)
+        .align_top(Fill)
+        .width(Fill)
+        .height(Fill)
+        .padding(pad);
+    let c = if align_right {
+        c.align_right(Fill)
+    } else {
+        c.align_left(Fill)
+    };
+    c.into()
+}
+
 impl Ribbon {
     pub fn new() -> Self {
         Self {
@@ -140,14 +167,22 @@ impl Ribbon {
         f32::from_bits(self.tool_bar_h.load(Ordering::Relaxed))
     }
 
-    /// (top, left) screen offset at which to anchor the open dropdown `id`'s
-    /// overlay — just below its widget. Falls back to below the whole ribbon
-    /// when the widget's position hasn't been recorded yet.
-    fn dd_anchor(&self, id: &str) -> (f32, f32) {
-        if let Some(b) = crate::ui::wrap_bar::dropdown_bounds(id) {
-            (b.y + b.height, b.x)
-        } else {
-            (self.tab_bar_height() + self.tool_bar_height(), 0.0)
+    /// (align_right, horizontal_pad, top) to anchor the open dropdown `id`'s
+    /// overlay just below its widget. It grows rightward from the widget's left
+    /// edge, but flips to right-aligned (growing left) when a panel of `panel_w`
+    /// would cross the right window edge `win_w`. Falls back to below the whole
+    /// ribbon when the widget's position hasn't been recorded yet.
+    fn dd_anchor(&self, id: &str, panel_w: f32, win_w: f32) -> (bool, f32, f32) {
+        match crate::ui::wrap_bar::dropdown_bounds(id) {
+            Some(b) => {
+                let top = b.y + b.height;
+                if b.x + panel_w > win_w - 2.0 {
+                    (true, (win_w - (b.x + b.width)).max(4.0), top)
+                } else {
+                    (false, b.x.max(0.0), top)
+                }
+            }
+            None => (false, 0.0, self.tab_bar_height() + self.tool_bar_height()),
         }
     }
 
@@ -561,6 +596,7 @@ impl Ribbon {
         &self,
         undo_labels: &[String],
         redo_labels: &[String],
+        win: (f32, f32),
     ) -> Option<Element<'_, Message>> {
         let open_id = self.open_dropdown.as_deref()?;
 
@@ -607,39 +643,30 @@ impl Ribbon {
                 })
                 .width(Length::Fixed(170.0));
 
-            let (top, left) = self.dd_anchor(open_id);
-            let positioned = container(panel)
-                .align_left(Fill)
-                .align_top(Fill)
-                .padding(Padding {
-                    top,
-                    left,
-                    ..Default::default()
-                })
-                .width(Fill)
-                .height(Fill);
+            let (align_right, h_pad, top) = self.dd_anchor(open_id, 170.0, win.0);
+            let positioned = position_ribbon_dropdown(panel.into(), align_right, h_pad, top);
 
-            return Some(dropdown_backdrop(positioned.into()));
+            return Some(dropdown_backdrop(positioned));
         }
 
         if open_id == LAYER_COMBO_ID {
-            return self.layer_combo_overlay();
+            return self.layer_combo_overlay(win);
         }
 
         if open_id == PROP_COLOR_ID {
-            return self.prop_color_overlay();
+            return self.prop_color_overlay(win);
         }
         if open_id == PROP_LINETYPE_ID {
-            return self.prop_linetype_overlay();
+            return self.prop_linetype_overlay(win);
         }
         if open_id == PROP_LW_ID {
-            return self.prop_lw_overlay();
+            return self.prop_lw_overlay(win);
         }
 
         // Style combo dropdowns (annotate tab) float as overlays so the list
         // isn't clipped by the fixed ribbon-row height, the way the Draw-tab
         // dropdowns already are. (#153)
-        if let Some(ov) = self.style_combo_overlay(open_id) {
+        if let Some(ov) = self.style_combo_overlay(open_id, win) {
             return Some(ov);
         }
 
@@ -732,22 +759,16 @@ impl Ribbon {
             })
             .width(Length::Fixed(190.0));
 
-        let (top_offset, left_offset) = self.dd_anchor(open_id);
-        let positioned = container(panel)
-            .align_left(Fill)
-            .align_top(Fill)
-            .padding(Padding {
-                top: top_offset,
-                left: left_offset,
-                ..Default::default()
-            })
-            .width(Fill)
-            .height(Fill);
-
-        Some(dropdown_backdrop(positioned.into()))
+        let (align_right, h_pad, top) = self.dd_anchor(open_id, 190.0, win.0);
+        Some(dropdown_backdrop(position_ribbon_dropdown(
+            panel.into(),
+            align_right,
+            h_pad,
+            top,
+        )))
     }
 
-    fn layer_combo_overlay(&self) -> Option<Element<'_, Message>> {
+    fn layer_combo_overlay(&self, win: (f32, f32)) -> Option<Element<'_, Message>> {
         // A toggle icon (visible / freeze / lock) is its own button so a click
         // on it flips that state instead of bubbling up to the row's
         // make-active handler (#133).
@@ -854,21 +875,10 @@ impl Ribbon {
             })
             .width(Length::Fixed(220.0));
 
-        let top_offset = self.tab_bar_height() + self.tool_bar_height();
-        let groups = self.modules.get(self.active)?.ribbon_groups();
-        let left_offset = compute_layer_combo_left(&groups);
-        let positioned = container(panel)
-            .align_left(Fill)
-            .align_top(Fill)
-            .padding(Padding {
-                top: top_offset,
-                left: left_offset,
-                ..Default::default()
-            })
-            .width(Fill)
-            .height(Fill);
+        let (align_right, h_pad, top) = self.dd_anchor(LAYER_COMBO_ID, 220.0, win.0);
+        let positioned = position_ribbon_dropdown(panel.into(), align_right, h_pad, top);
 
-        Some(dropdown_backdrop(positioned.into()))
+        Some(dropdown_backdrop(positioned))
     }
 
     /// Floating popup for an annotate-tab style combo (text / dimension /
@@ -876,7 +886,7 @@ impl Ribbon {
     /// style combo. Built as an overlay — like the layer combo and the
     /// Draw-tab dropdowns — so the list grows to fit its entries instead of
     /// being clipped to the ribbon-row height. (#153)
-    fn style_combo_overlay(&self, open_id: &str) -> Option<Element<'_, Message>> {
+    fn style_combo_overlay(&self, open_id: &str, win: (f32, f32)) -> Option<Element<'_, Message>> {
         let groups = self.modules.get(self.active)?.ribbon_groups();
 
         // Locate the open style combo; capture its style key + manager command.
@@ -978,23 +988,16 @@ impl Ribbon {
             })
             .width(Length::Fixed(LARGE_W * 2.3));
 
-        let top_offset = self.tab_bar_height() + self.tool_bar_height();
-        let left_offset = compute_dropdown_left(&groups, open_id);
-        let positioned = container(panel)
-            .align_left(Fill)
-            .align_top(Fill)
-            .padding(Padding {
-                top: top_offset,
-                left: left_offset,
-                ..Default::default()
-            })
-            .width(Fill)
-            .height(Fill);
-
-        Some(dropdown_backdrop(positioned.into()))
+        let (align_right, h_pad, top) = self.dd_anchor(open_id, LARGE_W * 2.3, win.0);
+        Some(dropdown_backdrop(position_ribbon_dropdown(
+            panel.into(),
+            align_right,
+            h_pad,
+            top,
+        )))
     }
 
-    fn prop_color_overlay(&self) -> Option<Element<'_, Message>> {
+    fn prop_color_overlay(&self, win: (f32, f32)) -> Option<Element<'_, Message>> {
         let picker = crate::ui::color_select::color_list(
             crate::ui::color_select::ColorExtras {
                 by_layer: true,
@@ -1016,24 +1019,16 @@ impl Ribbon {
             })
             .width(Length::Fixed(200.0));
 
-        let top_offset = self.tab_bar_height() + self.tool_bar_height();
-        let groups = self.modules.get(self.active)?.ribbon_groups();
-        let left_offset = compute_prop_combo_left(&groups, PROP_COLOR_ID);
-        let positioned = container(panel)
-            .align_left(Fill)
-            .align_top(Fill)
-            .padding(Padding {
-                top: top_offset,
-                left: left_offset,
-                ..Default::default()
-            })
-            .width(Fill)
-            .height(Fill);
-
-        Some(dropdown_backdrop(positioned.into()))
+        let (align_right, h_pad, top) = self.dd_anchor(PROP_COLOR_ID, 200.0, win.0);
+        Some(dropdown_backdrop(position_ribbon_dropdown(
+            panel.into(),
+            align_right,
+            h_pad,
+            top,
+        )))
     }
 
-    fn prop_linetype_overlay(&self) -> Option<Element<'_, Message>> {
+    fn prop_linetype_overlay(&self, win: (f32, f32)) -> Option<Element<'_, Message>> {
         let active_lt = &self.active_linetype;
 
         let mut items: Vec<LinetypeItem> = vec![
@@ -1105,24 +1100,16 @@ impl Ribbon {
             })
             .width(Length::Fixed(220.0));
 
-        let top_offset = self.tab_bar_height() + self.tool_bar_height();
-        let groups = self.modules.get(self.active)?.ribbon_groups();
-        let left_offset = compute_prop_combo_left(&groups, PROP_LINETYPE_ID);
-        let positioned = container(list)
-            .align_left(Fill)
-            .align_top(Fill)
-            .padding(Padding {
-                top: top_offset,
-                left: left_offset,
-                ..Default::default()
-            })
-            .width(Fill)
-            .height(Fill);
-
-        Some(dropdown_backdrop(positioned.into()))
+        let (align_right, h_pad, top) = self.dd_anchor(PROP_LINETYPE_ID, 220.0, win.0);
+        Some(dropdown_backdrop(position_ribbon_dropdown(
+            list.into(),
+            align_right,
+            h_pad,
+            top,
+        )))
     }
 
-    fn prop_lw_overlay(&self) -> Option<Element<'_, Message>> {
+    fn prop_lw_overlay(&self, win: (f32, f32)) -> Option<Element<'_, Message>> {
         let active_lw = self.active_lineweight;
         let rows: Vec<Element<Message>> = lw_options()
             .into_iter()
@@ -1160,7 +1147,7 @@ impl Ribbon {
             })
             .collect();
 
-        self.prop_overlay_positioned(rows, PROP_LW_ID, 140.0)
+        self.prop_overlay_positioned(rows, PROP_LW_ID, 140.0, win)
     }
 
     fn prop_overlay_positioned<'a>(
@@ -1168,6 +1155,7 @@ impl Ribbon {
         rows: Vec<Element<'a, Message>>,
         dd_id: &str,
         width: f32,
+        win: (f32, f32),
     ) -> Option<Element<'a, Message>> {
         let panel = container(column(rows))
             .style(|_: &Theme| container::Style {
@@ -1181,21 +1169,13 @@ impl Ribbon {
             })
             .width(Length::Fixed(width));
 
-        let top_offset = self.tab_bar_height() + self.tool_bar_height();
-        let groups = self.modules.get(self.active)?.ribbon_groups();
-        let left_offset = compute_prop_combo_left(&groups, dd_id);
-        let positioned = container(panel)
-            .align_left(Fill)
-            .align_top(Fill)
-            .padding(Padding {
-                top: top_offset,
-                left: left_offset,
-                ..Default::default()
-            })
-            .width(Fill)
-            .height(Fill);
-
-        Some(dropdown_backdrop(positioned.into()))
+        let (align_right, h_pad, top) = self.dd_anchor(dd_id, width, win.0);
+        Some(dropdown_backdrop(position_ribbon_dropdown(
+            panel.into(),
+            align_right,
+            h_pad,
+            top,
+        )))
     }
 }
 
