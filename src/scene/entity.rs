@@ -1092,6 +1092,33 @@ impl Scene {
             let pat_name = &dxf.pattern.name;
             if let Some(entry) = crate::scene::model::hatch_patterns::find(pat_name) {
                 entry.gpu.clone()
+            } else if matches!(
+                dxf.pattern_type,
+                acadrust::entities::hatch::HatchPatternType::UserDefined
+            ) {
+                // User-defined hatch: parallel lines at `pattern_angle`, spaced
+                // `pattern_scale` apart, plus a perpendicular set when
+                // `is_double`. Its name ("_USER") is not a catalog pattern.
+                // Build BASE families (angle 0, and 90 for the cross set) with
+                // unit perpendicular spacing; the HatchModel's angle_offset
+                // (= pattern_angle) and scale (= pattern_scale) below rotate and
+                // space them — exactly as a predefined .PAT pattern is applied —
+                // so the angle/scale is applied once, not doubled. Replaces the
+                // old fallback that forced every user-defined hatch to flat
+                // horizontal lines at the wrong spacing (#278).
+                let fam = |angle_deg: f32| model::hatch_model::PatFamily {
+                    angle_deg,
+                    x0: 0.0,
+                    y0: 0.0,
+                    dx: 0.0,
+                    dy: 1.0,
+                    dashes: vec![],
+                };
+                let mut fams = vec![fam(0.0)];
+                if dxf.is_double {
+                    fams.push(fam(90.0));
+                }
+                model::hatch_model::HatchPattern::Pattern(fams)
             } else {
                 model::hatch_model::HatchPattern::Pattern(vec![model::hatch_model::PatFamily {
                     angle_deg: 0.0,
