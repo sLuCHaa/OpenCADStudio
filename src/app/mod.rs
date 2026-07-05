@@ -232,6 +232,9 @@ pub(super) struct OpenCADStudio {
     /// Which Start-page section is shown when the page is too narrow for all
     /// three side by side and falls back to a tab bar.
     start_section: StartSection,
+    /// When the window is too narrow the properties panel collapses to a
+    /// vertical bar; this is the user's toggle to expand it back out.
+    props_expanded: bool,
     /// Read-only editor buffer backing the command-line history dropdown, so
     /// the log can be drag-selected across lines and copied (issue #232).
     /// Rebuilt from the history each time the dropdown is opened.
@@ -1129,6 +1132,8 @@ pub enum Message {
     OpenUrl(String),
     /// Select which section a narrow (tabbed) Start page shows.
     StartSectionSelect(StartSection),
+    /// Expand/collapse the properties panel when it has shrunk to a bar.
+    TogglePropertiesBar,
     /// Scroll the status-bar layout-tab strip horizontally by `delta` px
     /// (negative = left). Driven by the ‹ › arrows next to the tabs.
     ScrollLayoutTabs(f32),
@@ -1975,6 +1980,7 @@ impl OpenCADStudio {
             command_line: CommandLine::new(),
             patrons: Vec::new(),
             start_section: StartSection::default(),
+            props_expanded: false,
             history_content: iced::widget::text_editor::Content::new(),
             status_bar: StatusBar::new(),
             cursor_pos: Point::ORIGIN,

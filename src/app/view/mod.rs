@@ -8,8 +8,8 @@ use crate::scene::view::viewport_pane::ViewportPane;
 use crate::scene::{VIEWCUBE_PAD, VIEWCUBE_REGION_PX};
 use crate::ui::wrap_bar::WrapFlow;
 use iced::widget::{
-    button, column, container, mouse_area, pane_grid, responsive, row, shader, stack, text, Row,
-    Space,
+    button, canvas, column, container, mouse_area, pane_grid, responsive, row, shader, stack, text,
+    Row, Space,
 };
 use iced::window;
 use iced::{keyboard, Background, Border, Color, Element, Fill, Subscription, Task, Theme};
@@ -1143,7 +1143,17 @@ impl OpenCADStudio {
         let properties_el: Element<'_, Message> = if tab.is_start {
             Space::new().into()
         } else if self.show_properties && !self.clean_screen {
-            tab.properties.view()
+            // On a narrow window the panel collapses to a vertical "Properties"
+            // bar to free width for the viewport; clicking the bar expands it.
+            let narrow = self.win_size.0 < 1000.0;
+            let bar = || collapse_bar("Properties", Message::TogglePropertiesBar);
+            if narrow && !self.props_expanded {
+                bar()
+            } else if narrow {
+                row![bar(), tab.properties.view()].into()
+            } else {
+                tab.properties.view()
+            }
         } else {
             Space::new().into()
         };
@@ -1985,6 +1995,90 @@ fn pane_mouse_area<'a>(idx: usize) -> Element<'a, Message> {
         .on_scroll(move |d| Message::PaneScroll(idx, d))
         .on_exit(Message::ViewportExit)
         .into()
+}
+
+/// Canvas that draws a label rotated 90° (for a collapsed panel's bar).
+struct VBarLabel {
+    text: String,
+    color: Color,
+}
+
+impl canvas::Program<Message> for VBarLabel {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &iced::Renderer,
+        _theme: &Theme,
+        bounds: iced::Rectangle,
+        _cursor: iced::advanced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        frame.with_save(|frame| {
+            frame.translate(iced::Vector::new(bounds.width / 2.0, bounds.height / 2.0));
+            frame.rotate(iced::Radians(std::f32::consts::FRAC_PI_2));
+            frame.fill_text(canvas::Text {
+                content: self.text.clone(),
+                position: iced::Point::ORIGIN,
+                color: self.color,
+                size: iced::Pixels(13.0),
+                align_x: iced::advanced::text::Alignment::Center,
+                align_y: iced::alignment::Vertical::Center,
+                shaping: iced::advanced::text::Shaping::Advanced,
+                ..Default::default()
+            });
+        });
+        vec![frame.into_geometry()]
+    }
+}
+
+/// A collapsed panel rendered as a tall narrow bar with its name written along
+/// it, rotated 90°. Pressing it emits `on_press`.
+pub(super) fn collapse_bar<'a>(name: &str, on_press: Message) -> Element<'a, Message> {
+    const LABEL: Color = Color {
+        r: 0.72,
+        g: 0.72,
+        b: 0.74,
+        a: 1.0,
+    };
+    const BAR_BG: Color = Color {
+        r: 0.13,
+        g: 0.13,
+        b: 0.14,
+        a: 1.0,
+    };
+    const BAR_BORDER: Color = Color {
+        r: 0.22,
+        g: 0.22,
+        b: 0.24,
+        a: 1.0,
+    };
+
+    let label = canvas(VBarLabel {
+        text: name.to_string(),
+        color: LABEL,
+    })
+    .width(Fill)
+    .height(Fill);
+
+    mouse_area(
+        container(label)
+            .width(iced::Length::Fixed(26.0))
+            .height(Fill)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BAR_BG)),
+                border: Border {
+                    color: BAR_BORDER,
+                    width: 1.0,
+                    radius: 0.0.into(),
+                },
+                ..Default::default()
+            }),
+    )
+    .interaction(iced::mouse::Interaction::Pointer)
+    .on_press(on_press)
+    .into()
 }
 
 pub(super) fn start_page_view<'a>(

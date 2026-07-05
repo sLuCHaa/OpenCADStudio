@@ -226,6 +226,11 @@ impl OpenCADStudio {
                 Task::none()
             }
 
+            Message::TogglePropertiesBar => {
+                self.props_expanded = !self.props_expanded;
+                Task::none()
+            }
+
             Message::ScrollLayoutTabs(dx) => iced::widget::operation::scroll_by(
                 iced::advanced::widget::Id::new(crate::ui::statusbar::LAYOUT_TABS_SCROLL_ID),
                 iced::widget::scrollable::AbsoluteOffset { x: dx, y: 0.0 },
