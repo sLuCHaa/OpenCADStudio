@@ -889,19 +889,8 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                     } else {
                         let (go, gr) = self.tabs[i].ucs_grid_basis();
                         self.snapper.from_point = self.last_point;
-                        let force_corners = self.tabs[i]
-                            .active_cmd
-                            .as_ref()
-                            .map(|c| c.forces_endpoint_snap())
-                            .unwrap_or(false);
-                        if force_corners {
-                            self.snapper.snap_forced_corners(
-                                snap_cursor, p, &all_wires[..], view_rot, eye, bounds, go, gr,
-                            )
-                        } else {
-                            self.snapper
-                                .snap(snap_cursor, p, &all_wires[..], view_rot, eye, bounds, go, gr)
-                        }
+                        self.snapper
+                            .snap(snap_cursor, p, &all_wires[..], view_rot, eye, bounds, go, gr)
                     };
 
                     // Object Snap Tracking: update dwell, then align the cursor
@@ -1828,23 +1817,7 @@ pub(super) fn on_tick(&mut self, t: Instant) -> Task<Message> {
                         } else {
                             let (go, gr) = self.tabs[i].ucs_grid_basis();
                             self.snapper.from_point = self.last_point;
-                            // Mirror the preview path (see on_tick): a command that
-                            // forces corner snap (PLOTWINDOW) must commit the forced
-                            // Endpoint hit, not a plain snap — otherwise the marker
-                            // promises an endpoint the click places at the raw cursor
-                            // whenever the global OSNAP master (or Endpoint mode) is off.
-                            let force_corners = self.tabs[i]
-                                .active_cmd
-                                .as_ref()
-                                .map(|c| c.forces_endpoint_snap())
-                                .unwrap_or(false);
-                            if force_corners {
-                                self.snapper.snap_forced_corners(
-                                    snap_cursor, p, &all_wires[..], view_rot, eye, bounds, go, gr,
-                                )
-                            } else {
-                                self.snapper.snap(snap_cursor, p, &all_wires[..], view_rot, eye, bounds, go, gr)
-                            }
+                            self.snapper.snap(snap_cursor, p, &all_wires[..], view_rot, eye, bounds, go, gr)
                         };
                         // Snap runs in model space; the result is already model.
                         let mut pt = snap_hit.map(|s| s.world).unwrap_or(raw);

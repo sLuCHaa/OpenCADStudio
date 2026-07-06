@@ -530,13 +530,6 @@ pub trait CadCommand: Send {
         false
     }
 
-    /// True if this command should have Endpoint/Intersection object-snap
-    /// forced on while it is active, regardless of the global OSNAP toggle.
-    /// Used by PLOTWINDOW so the plot-area corners always snap to geometry.
-    fn forces_endpoint_snap(&self) -> bool {
-        false
-    }
-
     /// Called when the text editor closes, either because the user committed or cancelled the edit.
     fn on_editor_closed(&mut self, _committed: bool) -> CmdResult {
         CmdResult::Cancel

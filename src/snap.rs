@@ -1355,48 +1355,6 @@ impl Snapper {
 
         best
     }
-
-    /// The exact object-snap mode set used while corner snap is forced.
-    ///
-    /// Endpoint only, deliberately: frame corners are line endpoints, so
-    /// Endpoint (a single O(n) pass over vertices) catches them. Intersection
-    /// snap is O(n²) over every pair of segments in the hit-test wire set — on a
-    /// large drawing viewed zoomed-out (exactly when a plot window is picked)
-    /// that froze the UI, so it is excluded from the forced set.
-    fn forced_corner_modes() -> HashSet<SnapType> {
-        let mut modes = HashSet::default();
-        modes.insert(SnapType::Endpoint);
-        modes
-    }
-
-    /// Run object snap with the active modes replaced by exactly Endpoint,
-    /// regardless of the global OSNAP master toggle or the user's configured
-    /// modes, then restore both afterward. Commands that always want corner
-    /// snapping (PLOTWINDOW) call this so the plot-area corners snap without
-    /// changing the user's global OSNAP settings.
-    #[allow(clippy::too_many_arguments)]
-    pub fn snap_forced_corners(
-        &mut self,
-        cursor_world: glam::DVec3,
-        cursor_screen: Point,
-        wires: &[WireModel],
-        view_rot: Mat4,
-        eye: glam::DVec3,
-        bounds: Rectangle,
-        grid_origin: Vec3,
-        grid_rot: Mat4,
-    ) -> Option<SnapResult> {
-        let saved_master = self.snap_enabled;
-        let saved_modes = self.enabled.clone();
-        self.snap_enabled = true;
-        self.enabled = Self::forced_corner_modes();
-        let result = self.snap(
-            cursor_world, cursor_screen, wires, view_rot, eye, bounds, grid_origin, grid_rot,
-        );
-        self.snap_enabled = saved_master;
-        self.enabled = saved_modes;
-        result
-    }
 }
 
 // ── Object-snap priority ───────────────────────────────────────────────────
@@ -1913,49 +1871,5 @@ mod ext_tests {
         assert!((t0.x - 2.5).abs() < 1e-2 && (t0.y.abs() - 4.330).abs() < 1e-2);
         // A point inside the circle has no external tangent.
         assert!(circle_tangent_points(Vec3::new(1.0, 0.0, 0.0), c, 5.0).is_none());
-    }
-}
-
-#[cfg(test)]
-mod forced_corner_tests {
-    use super::*;
-
-    #[test]
-    fn snap_forced_corners_restores_state() {
-        let mut s = Snapper::default();
-        // Master off, and a non-default configured mode set.
-        s.snap_enabled = false;
-        s.enabled.clear();
-        s.enabled.insert(SnapType::Midpoint);
-        let before = s.enabled.clone();
-
-        // Empty wire set → no candidate → None; we only assert the state
-        // is untouched afterward (the risky save/restore path).
-        let r = s.snap_forced_corners(
-            glam::DVec3::ZERO,
-            Point::new(0.0, 0.0),
-            &[],
-            Mat4::IDENTITY,
-            glam::DVec3::ZERO,
-            Rectangle { x: 0.0, y: 0.0, width: 800.0, height: 600.0 },
-            Vec3::ZERO,
-            Mat4::IDENTITY,
-        );
-
-        assert!(r.is_none());
-        assert!(!s.snap_enabled, "master toggle must be restored to off");
-        assert_eq!(s.enabled, before, "configured modes must be restored");
-    }
-
-    #[test]
-    fn forced_corner_modes_are_endpoint_only() {
-        let modes = Snapper::forced_corner_modes();
-        assert!(modes.contains(&SnapType::Endpoint));
-        // Intersection is O(n²) over the wire set and is deliberately excluded —
-        // forcing it froze the UI on large drawings.
-        assert!(!modes.contains(&SnapType::Intersection));
-        assert!(!modes.contains(&SnapType::Midpoint));
-        assert!(!modes.contains(&SnapType::Center));
-        assert_eq!(modes.len(), 1);
     }
 }
