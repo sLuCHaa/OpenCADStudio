@@ -613,6 +613,14 @@ pub(crate) fn tessellate_entity(
             }
             _ => None,
         };
+        // SDF text renders crisply at every zoom, so bypass the baseline/greek
+        // LOD ladder entirely — fall through to the full path, which is itself
+        // suppressed to an empty (snap-only) wire while SDF is on.
+        let text_height = if crate::scene::text::sdf_atlas::sdf_text_enabled() {
+            None
+        } else {
+            text_height
+        };
         if let Some(h_world) = text_height {
             let h_px = (h_world as f32) / wpp;
             // Wrap-expanded line count for MText (Text = 1).
