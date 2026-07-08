@@ -878,6 +878,19 @@ impl Snapper {
                 && cursor_world.y - r <= wire.aabb[3] as f64
         };
 
+        // The per-wire snaps below skip out-of-aperture wires via `wire_in_range`,
+        // so they stay O(n) and snap at any zoom. Intersection / ApparentIntersection
+        // instead compare pairs of in-range segments — O(k²) — which hangs when the
+        // aperture spans the whole drawing. Count the in-range wires once and gate
+        // only those pairwise passes; the single-wire snaps always run.
+        const MAX_PAIRWISE_CANDIDATES: usize = 1_500;
+        let allow_pairwise = wires
+            .iter()
+            .filter(|w| wire_in_range(w))
+            .take(MAX_PAIRWISE_CANDIDATES + 1)
+            .count()
+            <= MAX_PAIRWISE_CANDIDATES;
+
         let mut try_pt = |world: glam::DVec3, snap_type: SnapType| {
             let screen = world_to_screen(world, view_rot, eye, bounds);
             if !in_bounds(screen) {
@@ -1018,8 +1031,8 @@ impl Snapper {
             }
         }
 
-        // ── Intersection — segment-segment intersections ──────────
-        if self.is_on(SnapType::Intersection) {
+        // ── Intersection — segment-segment intersections (pairwise, gated) ──
+        if self.is_on(SnapType::Intersection) && allow_pairwise {
             for i in 0..wires.len() {
                 if !wire_in_range(&wires[i]) {
                     continue;
@@ -1169,9 +1182,9 @@ impl Snapper {
             }
         }
 
-        // ── Apparent Intersection — screen-space intersections ─────────────
+        // ── Apparent Intersection — screen-space intersections (pairwise, gated) ──
         // L: pre-project each in-range wire's points to screen once, not once per segment pair.
-        if self.is_on(SnapType::ApparentIntersection) {
+        if self.is_on(SnapType::ApparentIntersection) && allow_pairwise {
             let screen_pts: Vec<Option<Vec<Point>>> = wires
                 .iter()
                 .map(|w| {
