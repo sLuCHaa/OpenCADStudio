@@ -1,6 +1,5 @@
 pub mod face3d_gpu;
 pub mod hatch_batched_gpu;
-pub mod hatch_tess;
 pub mod hatch_gpu;
 pub mod image_gpu;
 pub mod mesh_gpu;

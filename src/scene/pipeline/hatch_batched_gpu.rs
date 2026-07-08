@@ -199,7 +199,6 @@ impl HatchBatchedGpu {
         }
 
         let mut instances: Vec<HatchInstance> = Vec::with_capacity(hatches.len());
-        let mut instance_tris: Vec<Vec<[f32; 2]>> = Vec::with_capacity(hatches.len());
         let mut boundary: Vec<[f32; 4]> = Vec::new();
         let mut families: Vec<LineFamilyGpu> = Vec::new();
         let mut dashes: Vec<f32> = Vec::new();
@@ -211,11 +210,6 @@ impl HatchBatchedGpu {
             }
             let boundary_count = boundary.len() as u32 - boundary_offset;
 
-            // Triangulate this boundary once (cached with the whole build, which
-            // only re-runs when geometry_epoch advances). Empty → fall back to the
-            // AABB-quad + in_polygon path for this instance.
-            let tris = crate::scene::pipeline::hatch_tess::tessellate_boundary(&h.boundary);
-            instance_tris.push(tris);
 
             let family_offset = families.len() as u32;
             let mut family_count = 0u32;
@@ -350,12 +344,16 @@ impl HatchBatchedGpu {
                 family_offset,
                 family_count,
                 draw_depth: h.draw_depth,
-                poly_test: if instance_tris.last().map_or(true, |t| t.is_empty()) { 1 } else { 0 },
+                // Always resolve inside/outside per fragment on the GPU (the
+                // boundary is uploaded below). Dropping CPU pre-triangulation
+                // keeps the vertex buffer at 6 verts/hatch regardless of
+                // boundary complexity, so a hatch-dense drawing can't overflow
+                // the device buffer limit. Each instance draws its AABB quad.
+                poly_test: 1,
                 _pad1: 0,
                 _pad2: 0,
             });
         }
-
         // Empty fallbacks — storage buffers can't be zero-sized.
         if boundary.is_empty() {
             boundary.push([0.0; 4]);
@@ -367,26 +365,20 @@ impl HatchBatchedGpu {
             dashes.push(0.0);
         }
 
-        // Vertex buffer — tessellated triangles per instance, or an AABB quad
-        // fallback (poly_test==1) when tessellation produced nothing.
-        let mut verts: Vec<HatchBatchedVertex> = Vec::new();
+        // Vertex buffer — one AABB quad (two triangles, BL,BR,TL, BR,TR,TL) per
+        // instance; the GPU shader clips each fragment to the boundary via the
+        // in_polygon test (poly_test == 1). 6 verts/hatch, independent of
+        // boundary complexity, so the buffer can never overflow the device
+        // limit no matter how dense the drawing.
+        let mut verts: Vec<HatchBatchedVertex> = Vec::with_capacity(instances.len() * 6);
         for (i, inst) in instances.iter().enumerate() {
-            let tris = &instance_tris[i];
-            if !tris.is_empty() {
-                for &[x, y] in tris.iter() {
-                    verts.push(HatchBatchedVertex { local_xy: [x, y], instance_index: i as u32 });
-                }
-            } else {
-                // Fallback: two triangles over the local-space AABB, same corner
-                // order as the old shader (BL,BR,TL, BR,TR,TL).
-                let [xmin, ymin, xmax, ymax] = inst.aabb;
-                let quad = [
-                    [xmin, ymin], [xmax, ymin], [xmin, ymax],
-                    [xmax, ymin], [xmax, ymax], [xmin, ymax],
-                ];
-                for c in quad {
-                    verts.push(HatchBatchedVertex { local_xy: c, instance_index: i as u32 });
-                }
+            let [xmin, ymin, xmax, ymax] = inst.aabb;
+            let quad = [
+                [xmin, ymin], [xmax, ymin], [xmin, ymax],
+                [xmax, ymin], [xmax, ymax], [xmin, ymax],
+            ];
+            for c in quad {
+                verts.push(HatchBatchedVertex { local_xy: c, instance_index: i as u32 });
             }
         }
 
