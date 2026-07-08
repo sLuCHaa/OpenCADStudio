@@ -32,14 +32,14 @@ pub fn general_section(entity: &EntityType) -> PropSection {
                 value: PropValue::ReadOnly(common.handle.value().to_string()),
             },
             Property {
-                label: "Layer".into(),
-                field: "layer",
-                value: PropValue::LayerChoice(common.layer.clone()),
-            },
-            Property {
                 label: "Color".into(),
                 field: "color",
                 value: PropValue::ColorChoice(common.color),
+            },
+            Property {
+                label: "Layer".into(),
+                field: "layer",
+                value: PropValue::LayerChoice(common.layer.clone()),
             },
             Property {
                 label: "Linetype".into(),
@@ -89,15 +89,6 @@ pub fn general_section(entity: &EntityType) -> PropSection {
             .props
             .push(crate::entities::common::edit_prop("Thickness", "thickness", t));
     }
-
-    section.props.push(Property {
-        label: "Invisible".into(),
-        field: "invisible",
-        value: PropValue::BoolToggle {
-            field: "invisible",
-            value: common.invisible,
-        },
-    });
 
     section
 }
