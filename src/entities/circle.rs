@@ -128,21 +128,18 @@ fn properties(circle: &Circle) -> Vec<PropSection> {
             edit("Center Y", "center_y", circle.center.y),
             edit("Center Z", "center_z", circle.center.z),
             edit("Radius", "radius", r),
-            ro("Diameter", "diameter", format!("{:.4}", r * 2.0)),
-            ro(
-                "Circumference",
-                "circumference",
-                format!("{:.4}", 2.0 * PI * r),
-            ),
-            ro("Area", "area", format!("{:.4}", PI * r * r)),
-            edit("Normal X", "normal_x", circle.normal.x),
-            edit("Normal Y", "normal_y", circle.normal.y),
-            edit("Normal Z", "normal_z", circle.normal.z),
+            edit("Diameter", "diameter", r * 2.0),
+            edit("Circumference", "circumference", 2.0 * PI * r),
+            edit("Area", "area", PI * r * r),
+            ro("Normal X", "normal_x", format!("{:.4}", circle.normal.x)),
+            ro("Normal Y", "normal_y", format!("{:.4}", circle.normal.y)),
+            ro("Normal Z", "normal_z", format!("{:.4}", circle.normal.z)),
         ],
     }]
 }
 
 fn apply_geom_prop(circle: &mut Circle, field: &str, value: &str) {
+    use std::f64::consts::PI;
     let Some(v) = parse_f64(value) else {
         return;
     };
@@ -151,9 +148,9 @@ fn apply_geom_prop(circle: &mut Circle, field: &str, value: &str) {
         "center_y" => circle.center.y = v,
         "center_z" => circle.center.z = v,
         "radius" if v > 0.0 => circle.radius = v,
-        "normal_x" => circle.normal.x = v,
-        "normal_y" => circle.normal.y = v,
-        "normal_z" => circle.normal.z = v,
+        "diameter" if v > 0.0 => circle.radius = v / 2.0,
+        "circumference" if v > 0.0 => circle.radius = v / (2.0 * PI),
+        "area" if v > 0.0 => circle.radius = (v / PI).sqrt(),
         _ => {}
     }
 }

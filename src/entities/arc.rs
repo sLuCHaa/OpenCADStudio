@@ -152,24 +152,24 @@ fn properties(arc: &Arc) -> Vec<PropSection> {
     vec![PropSection {
         title: "Geometry".into(),
         props: vec![
+            ro("Start X", "start_x", format!("{sx:.4}")),
+            ro("Start Y", "start_y", format!("{sy:.4}")),
+            ro("Start Z", "start_z", format!("{sz:.4}")),
             edit("Center X", "center_x", arc.center.x),
             edit("Center Y", "center_y", arc.center.y),
             edit("Center Z", "center_z", arc.center.z),
+            ro("End X", "end_x", format!("{ex:.4}")),
+            ro("End Y", "end_y", format!("{ey:.4}")),
+            ro("End Z", "end_z", format!("{ez:.4}")),
             edit("Radius", "radius", arc.radius),
             edit("Start angle", "start_angle", sa.to_degrees()),
             edit("End angle", "end_angle", ea.to_degrees()),
             ro("Total angle", "total_angle", format!("{total_angle:.2}")),
             ro("Arc length", "arc_length", format!("{arc_length:.4}")),
             ro("Area", "area", format!("{area:.4}")),
-            ro("Start X", "start_x", format!("{sx:.4}")),
-            ro("Start Y", "start_y", format!("{sy:.4}")),
-            ro("Start Z", "start_z", format!("{sz:.4}")),
-            ro("End X", "end_x", format!("{ex:.4}")),
-            ro("End Y", "end_y", format!("{ey:.4}")),
-            ro("End Z", "end_z", format!("{ez:.4}")),
-            edit("Normal X", "normal_x", arc.normal.x),
-            edit("Normal Y", "normal_y", arc.normal.y),
-            edit("Normal Z", "normal_z", arc.normal.z),
+            ro("Normal X", "normal_x", format!("{:.4}", arc.normal.x)),
+            ro("Normal Y", "normal_y", format!("{:.4}", arc.normal.y)),
+            ro("Normal Z", "normal_z", format!("{:.4}", arc.normal.z)),
         ],
     }]
 }
@@ -185,9 +185,6 @@ fn apply_geom_prop(arc: &mut Arc, field: &str, value: &str) {
         "radius" if v > 0.0 => arc.radius = v,
         "start_angle" => arc.start_angle = v.to_radians(),
         "end_angle" => arc.end_angle = v.to_radians(),
-        "normal_x" => arc.normal.x = v,
-        "normal_y" => arc.normal.y = v,
-        "normal_z" => arc.normal.z = v,
         _ => {}
     }
 }
