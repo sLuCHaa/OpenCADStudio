@@ -5,6 +5,11 @@ use crate::scene::view::dispatch;
 use crate::ui;
 use acadrust::{EntityType, Handle};
 
+/// Above this many selected objects the Properties panel skips per-entity
+/// property aggregation (which is O(n) per row, plus an O(n²) group filter) and
+/// shows a count-only summary instead. Bulk edits still go through the ribbon.
+const MAX_PROP_AGGREGATE: usize = 2_000;
+
 impl OpenCADStudio {
     /// Rebuild the PropertiesPanel from the current entity selection.
     /// Preserves UI state (open pickers, edit buffer) across refreshes.
@@ -416,6 +421,23 @@ impl OpenCADStudio {
                         ..Default::default()
                     }
                 }
+                // Property aggregation is O(n) per row plus an O(n²) group filter
+                // (`group.handles.contains` scans per entity), stalling the rebuild
+                // for seconds at tens of thousands of objects. Above the cap show a
+                // count-only panel; bulk edits still go through the ribbon.
+                n if n > MAX_PROP_AGGREGATE => ui::PropertiesPanel {
+                    title: format!("{} objects selected", n),
+                    layer_combo: iced::widget::combo_box::State::new(layer_names.clone()),
+                    linetype_combo: iced::widget::combo_box::State::new(linetype_items.clone()),
+                    lineweight_combo: iced::widget::combo_box::State::new(
+                        ui::properties::lw_options(),
+                    ),
+                    hatch_pattern_combo: iced::widget::combo_box::State::new(
+                        crate::scene::model::hatch_patterns::names(),
+                    ),
+                    linetype_items,
+                    ..Default::default()
+                },
                 _ => {
                     let groups = build_selection_groups(&selected);
                     let active_group = selected_group
