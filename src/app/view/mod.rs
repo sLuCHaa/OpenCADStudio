@@ -219,6 +219,18 @@ impl OpenCADStudio {
                         None => tab.scene.active_model_tile_bounds(vw, vh),
                     };
                     let sel_h = tab.selected_handle;
+                    // The Current Vertex the Properties panel is focused on:
+                    // mark that grip hot so the navigated vertex is visible in
+                    // the drawing. Only for a single selected polyline, whose
+                    // vertex grips are ids 0..n. (Properties vertex stepper)
+                    let current_vertex_grip: Option<usize> = sel_h.and_then(|h| {
+                        matches!(
+                            tab.scene.document.get_entity(h),
+                            Some(acadrust::EntityType::LwPolyline(_))
+                                | Some(acadrust::EntityType::Polyline2D(_))
+                        )
+                        .then_some(tab.properties.prop_vertex)
+                    });
                     // In-viewport grips are model-space; project them with the
                     // viewport camera so they sit on the wire the GPU draws.
                     // Paper entities use the 2-D paper transform; the model tab
@@ -257,7 +269,8 @@ impl OpenCADStudio {
                             let is_hot = tab
                                 .active_grip
                                 .as_ref()
-                                .map_or(false, |g| Some(g.handle) == sel_h && g.grip_id == grip_id);
+                                .map_or(false, |g| Some(g.handle) == sel_h && g.grip_id == grip_id)
+                                || Some(grip_id) == current_vertex_grip;
                             crate::ui::overlay::GripMarker {
                                 pos: screen,
                                 shape,

@@ -8,6 +8,26 @@ use crate::entities::traits::EntityTypeOps;
 use crate::scene::model::object::{GripDef, PropSection};
 use crate::scene::cache::properties;
 
+thread_local! {
+    /// Which vertex a multi-vertex entity's Properties panel is focused on
+    /// (Current Vertex stepper). Set by the app from its `prop_vertex` state
+    /// before building or editing a polyline's properties; read by the
+    /// polyline `properties` / `apply_geom_prop` so the X/Y and per-vertex
+    /// width rows target that vertex. A thread-local keeps the per-entity trait
+    /// signatures unchanged (mirrors the curve-tolerance override).
+    static PROP_CURRENT_VERTEX: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Focus the Properties panel on vertex `i` for the next properties build / edit.
+pub fn set_prop_current_vertex(i: usize) {
+    PROP_CURRENT_VERTEX.with(|c| c.set(i));
+}
+
+/// The vertex the Properties panel is focused on.
+pub fn prop_current_vertex() -> usize {
+    PROP_CURRENT_VERTEX.with(|c| c.get())
+}
+
 pub fn grips(entity: &EntityType) -> Vec<GripDef> {
     EntityTypeOps::grips(entity)
 }

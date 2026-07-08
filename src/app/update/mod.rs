@@ -2200,6 +2200,29 @@ impl OpenCADStudio {
                 Task::none()
             }
 
+            Message::PropVertexStep(delta) => {
+                let i = self.active_tab;
+                let handles = self.property_target_handles(i);
+                // Vertex navigation applies to a single selected polyline.
+                let n = if handles.len() == 1 {
+                    match self.tabs[i].scene.document.get_entity(handles[0]) {
+                        Some(acadrust::EntityType::LwPolyline(p)) => p.vertices.len(),
+                        Some(acadrust::EntityType::Polyline2D(p)) => p.vertices.len(),
+                        _ => 0,
+                    }
+                } else {
+                    0
+                };
+                if n > 0 {
+                    let cur = self.tabs[i].properties.prop_vertex.min(n - 1) as i64;
+                    // Wrap around so ◀ from the first vertex lands on the last.
+                    let next = (cur + delta as i64).rem_euclid(n as i64) as usize;
+                    self.tabs[i].properties.prop_vertex = next;
+                    self.refresh_properties();
+                }
+                Task::none()
+            }
+
             Message::PropGeomChoiceChanged { field, value } => {
                 self.on_prop_geom_choice_changed(field, value)
             }

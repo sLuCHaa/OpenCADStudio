@@ -1278,6 +1278,11 @@ pub(super) fn on_tab_close(&mut self, idx: usize) -> Task<Message> {
                                 }
                             }
                         } else {
+                            // Per-vertex geometry edits (vertex_x/y, widths) target
+                            // the vertex the Current Vertex stepper is on. (polyline)
+                            crate::scene::view::dispatch::set_prop_current_vertex(
+                                self.tabs[i].properties.prop_vertex,
+                            );
                             for &handle in &handles {
                                 // Skip objects on a locked layer.
                                 if self.tabs[i].scene.is_layer_locked(handle) {

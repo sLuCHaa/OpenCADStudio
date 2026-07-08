@@ -1526,6 +1526,8 @@ pub enum Message {
     PropLinetypeChanged(String),
     /// User toggled a boolean property (e.g. Invisible).
     PropBoolToggle(&'static str),
+    /// User stepped the Current Vertex selector by ±1 (polyline vertex nav).
+    PropVertexStep(i8),
     /// User selected a hatch pattern from the pattern pick_list in Properties.
     PropHatchPatternChanged(String),
     /// User selected a generic choice field in the Properties panel.

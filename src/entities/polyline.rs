@@ -2,7 +2,9 @@ use acadrust::entities::{Polyline, Polyline2D, Polyline3D};
 use truck_modeling::{builder, Edge, Point3, Wire};
 
 use crate::command::EntityTransform;
-use crate::entities::common::{edit_prop as edit, parse_f64, ro_prop as ro, square_grip};
+use crate::entities::common::{
+    edit_prop as edit, parse_f64, ro_prop as ro, square_grip, stepper_prop as stepper,
+};
 use crate::entities::traits::{Grippable, PropertyEditable, Transformable, TruckConvertible};
 use crate::scene::convert::acad_to_truck::{TruckEntity, TruckObject};
 use crate::scene::model::object::{GripApply, GripDef, PropSection, PropValue, Property};
@@ -399,17 +401,27 @@ impl PropertyEditable for Polyline2D {
         }
         area = (area * 0.5).abs();
 
-        let v0 = self.vertices.first();
-        let vertex_x = v0.map(|v| v.location.x).unwrap_or_default();
-        let vertex_y = v0.map(|v| v.location.y).unwrap_or_default();
-        let seg_start_w = v0.map(|v| v.start_width).unwrap_or_default();
-        let seg_end_w = v0.map(|v| v.end_width).unwrap_or_default();
+        let vi = if n == 0 {
+            0
+        } else {
+            crate::scene::view::dispatch::prop_current_vertex().min(n - 1)
+        };
+        let v = self.vertices.get(vi);
+        let vertex_x = v.map(|v| v.location.x).unwrap_or_default();
+        let vertex_y = v.map(|v| v.location.y).unwrap_or_default();
+        let seg_start_w = v.map(|v| v.start_width).unwrap_or_default();
+        let seg_end_w = v.map(|v| v.end_width).unwrap_or_default();
+        let vertex_label = if n == 0 {
+            "—".to_string()
+        } else {
+            format!("{} / {}", vi + 1, n)
+        };
 
         vec![
             PropSection {
                 title: "Geometry".into(),
                 props: vec![
-                    ro("Current Vertex", "pl2_current_vertex", if n > 0 { "1" } else { "" }),
+                    stepper("Current Vertex", "pl2_current_vertex", vertex_label),
                     edit("Vertex X", "pl2_vertex_x", vertex_x),
                     edit("Vertex Y", "pl2_vertex_y", vertex_y),
                     edit("Start segment width", "pl2_seg_start_w", seg_start_w),
@@ -445,6 +457,13 @@ impl PropertyEditable for Polyline2D {
     }
 
     fn apply_geom_prop(&mut self, field: &str, value: &str) {
+        // Per-vertex edits target the vertex the panel is focused on.
+        let n = self.vertices.len();
+        let vi = if n == 0 {
+            0
+        } else {
+            crate::scene::view::dispatch::prop_current_vertex().min(n - 1)
+        };
         match field {
             "pl2_closed" => {
                 let closed = if value == "toggle" {
@@ -472,24 +491,24 @@ impl PropertyEditable for Polyline2D {
                 }
             }
             "pl2_vertex_x" => {
-                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.first_mut()) {
+                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.get_mut(vi)) {
                     vert.location.x = v;
                 }
             }
             "pl2_vertex_y" => {
-                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.first_mut()) {
+                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.get_mut(vi)) {
                     vert.location.y = v;
                 }
             }
             "pl2_seg_start_w" => {
-                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.first_mut()) {
+                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.get_mut(vi)) {
                     if v >= 0.0 {
                         vert.start_width = v;
                     }
                 }
             }
             "pl2_seg_end_w" => {
-                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.first_mut()) {
+                if let (Some(v), Some(vert)) = (parse_f64(value), self.vertices.get_mut(vi)) {
                     if v >= 0.0 {
                         vert.end_width = v;
                     }

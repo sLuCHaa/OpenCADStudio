@@ -4,6 +4,7 @@ use truck_modeling::{builder, Edge, Point3, Wire};
 use crate::command::EntityTransform;
 use crate::entities::common::{
     edit_prop as edit, parse_f64, rectangle_grip, ro_prop as ro, square_grip,
+    stepper_prop as stepper,
 };
 use crate::entities::traits::TruckConvertible;
 use crate::scene::convert::acad_to_truck::{TruckEntity, TruckObject};
@@ -323,22 +324,37 @@ fn grips(pline: &LwPolyline) -> Vec<GripDef> {
 }
 
 fn properties(pline: &LwPolyline) -> Vec<PropSection> {
-    let v0 = pline.vertices.first();
-    let vx = v0.map_or(0.0, |v| v.location.x);
-    let vy = v0.map_or(0.0, |v| v.location.y);
-    let start_w = v0.map_or(0.0, |v| v.start_width);
-    let end_w = v0.map_or(0.0, |v| v.end_width);
+    let n = pline.vertices.len();
+    // The panel's Current Vertex focus, clamped to this polyline's range.
+    let vi = if n == 0 {
+        0
+    } else {
+        crate::scene::view::dispatch::prop_current_vertex().min(n - 1)
+    };
+    let v = pline.vertices.get(vi);
+    let vx = v.map_or(0.0, |v| v.location.x);
+    let vy = v.map_or(0.0, |v| v.location.y);
+    let start_w = v.map_or(0.0, |v| v.start_width);
+    let end_w = v.map_or(0.0, |v| v.end_width);
+    let mp = <LwPolyline as crate::entities::traits::MassPropsCalc>::mass_props(pline);
+    let vertex_label = if n == 0 {
+        "—".to_string()
+    } else {
+        format!("{} / {}", vi + 1, n)
+    };
     vec![
         PropSection {
             title: "Geometry".into(),
             props: vec![
-                ro("Current Vertex", "current_vertex", String::new()),
+                stepper("Current Vertex", "current_vertex", vertex_label),
                 edit("Vertex X", "vertex_x", vx),
                 edit("Vertex Y", "vertex_y", vy),
                 edit("Start segment width", "start_width", start_w),
                 edit("End segment width", "end_width", end_w),
                 edit("Global width", "global_width", pline.constant_width),
                 edit("Elevation", "elevation", pline.elevation),
+                ro("Area", "area", format!("{:.4}", mp.area)),
+                ro("Length", "length", format!("{:.4}", mp.perimeter)),
             ],
         },
         PropSection {
@@ -388,26 +404,33 @@ fn apply_geom_prop(pline: &mut LwPolyline, field: &str, value: &str) {
     let Some(v) = parse_f64(value) else {
         return;
     };
+    // Per-vertex edits target the vertex the panel is focused on.
+    let n = pline.vertices.len();
+    let vi = if n == 0 {
+        0
+    } else {
+        crate::scene::view::dispatch::prop_current_vertex().min(n - 1)
+    };
     match field {
         "elevation" => pline.elevation = v,
         "global_width" => pline.constant_width = v,
         "vertex_x" => {
-            if let Some(vtx) = pline.vertices.first_mut() {
+            if let Some(vtx) = pline.vertices.get_mut(vi) {
                 vtx.location.x = v;
             }
         }
         "vertex_y" => {
-            if let Some(vtx) = pline.vertices.first_mut() {
+            if let Some(vtx) = pline.vertices.get_mut(vi) {
                 vtx.location.y = v;
             }
         }
         "start_width" => {
-            if let Some(vtx) = pline.vertices.first_mut() {
+            if let Some(vtx) = pline.vertices.get_mut(vi) {
                 vtx.start_width = v;
             }
         }
         "end_width" => {
-            if let Some(vtx) = pline.vertices.first_mut() {
+            if let Some(vtx) = pline.vertices.get_mut(vi) {
                 vtx.end_width = v;
             }
         }

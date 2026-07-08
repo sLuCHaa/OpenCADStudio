@@ -181,6 +181,23 @@ pub fn ro_prop(label: &'static str, field: &'static str, value: impl Into<String
     }
 }
 
+/// A ◀ / ▶ index navigator row (e.g. a polyline's Current Vertex). `display` is
+/// the label shown between the arrows (e.g. "2 / 7").
+pub fn stepper_prop(
+    label: &'static str,
+    field: &'static str,
+    display: impl Into<String>,
+) -> Property {
+    Property {
+        label: label.into(),
+        field,
+        value: PropValue::Stepper {
+            field,
+            display: display.into(),
+        },
+    }
+}
+
 pub fn parse_f64(value: &str) -> Option<f64> {
     value.trim().parse::<f64>().ok()
 }

@@ -149,6 +149,9 @@ pub struct PropertiesPanel {
     /// from `color_picker_open` so the entity colour and the background colour
     /// pickers are independent.
     pub bg_color_picker_open: bool,
+    /// Which vertex a multi-vertex entity (polyline) is focused on — driven by
+    /// the Current Vertex ◀ / ▶ stepper. Reset to 0 when the selection changes.
+    pub prop_vertex: usize,
 }
 
 impl Default for PropertiesPanel {
@@ -170,6 +173,7 @@ impl Default for PropertiesPanel {
             color_picker_open: false,
             color_palette_open: false,
             bg_color_picker_open: false,
+            prop_vertex: 0,
         }
     }
 }
@@ -352,6 +356,9 @@ impl PropertiesPanel {
                 }
                 PropValue::BoolToggle { field, value } => {
                     col = col.push(render_bool_row(&prop.label, *field, *value));
+                }
+                PropValue::Stepper { display, .. } => {
+                    col = col.push(render_stepper_row(&prop.label, display));
                 }
                 PropValue::EditText(val) => {
                     col = col.push(self.render_edit_row(&prop.label, prop.field, val));
@@ -859,6 +866,42 @@ pub fn color_picker_dropdown<'a>(
 // ── Standalone helpers ────────────────────────────────────────────────────
 
 /// A boolean toggle button row (for "Invisible" etc.).
+fn render_stepper_row<'a>(label: &'a str, display: &'a str) -> Element<'a, Message> {
+    let arrow = |glyph: &'static str, delta: i8| {
+        button(text(glyph).size(FONT_SZ).color(VALUE_COLOR))
+            .on_press(Message::PropVertexStep(delta))
+            .padding([0, 6])
+            .style(|_: &Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered | button::Status::Pressed => HOVER_BG,
+                    _ => VALUE_BG,
+                };
+                button::Style {
+                    background: Some(Background::Color(bg)),
+                    border: Border {
+                        color: BORDER,
+                        width: 1.0,
+                        radius: 2.0.into(),
+                    },
+                    text_color: VALUE_COLOR,
+                    ..Default::default()
+                }
+            })
+    };
+    let widget = iced::widget::row![
+        arrow("◀", -1),
+        text(display)
+            .size(FONT_SZ)
+            .color(VALUE_COLOR)
+            .width(Length::Fill)
+            .align_x(iced::Center),
+        arrow("▶", 1),
+    ]
+    .spacing(4)
+    .align_y(iced::Center);
+    prop_row_widget(label, widget.into())
+}
+
 fn render_bool_row<'a>(label: &'a str, field: &'static str, value: bool) -> Element<'a, Message> {
     let btn_label = if value { "Yes" } else { "No" };
     let btn =

@@ -29,6 +29,9 @@ pub enum PropValue {
     LinetypeChoice(String),
     /// Boolean flag — rendered as a toggle button (e.g. Invisible).
     BoolToggle { field: &'static str, value: bool },
+    /// A 0-based index navigated with ◀ / ▶ buttons (e.g. a polyline's Current
+    /// Vertex). `display` is the label shown between the arrows (e.g. "2 / 7").
+    Stepper { field: &'static str, display: String },
     /// Hatch pattern name — rendered as a combo_box from the catalog.
     HatchPatternChoice(String),
     /// Block attribute value keyed by its (dynamic, runtime) tag — rendered as

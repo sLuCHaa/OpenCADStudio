@@ -299,6 +299,7 @@ impl Scene {
                     PropValue::HatchPatternChoice(s) => s,
                     PropValue::BoolToggle { value, .. } => value.to_string(),
                     PropValue::AttrText { value, .. } => value,
+                    PropValue::Stepper { display, .. } => display,
                     PropValue::ColorVaries | PropValue::LwVaries => return None,
                 })
             }

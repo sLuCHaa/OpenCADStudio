@@ -64,6 +64,22 @@ impl OpenCADStudio {
             .filter(|name| !name.is_empty())
             .collect();
 
+        // Current-Vertex focus survives only while the same object stays
+        // selected; a changed selection resets to the first vertex. Seed the
+        // per-thread focus so the polyline property builder / editor targets it.
+        let cur_handles: Vec<acadrust::Handle> = self.tabs[i]
+            .scene
+            .selected_entities()
+            .iter()
+            .map(|(h, _)| *h)
+            .collect();
+        let prop_vertex = if cur_handles == prev_handles {
+            self.tabs[i].properties.prop_vertex
+        } else {
+            0
+        };
+        crate::scene::view::dispatch::set_prop_current_vertex(prop_vertex);
+
         let new_panel = {
             let selected = self.tabs[i].scene.selected_entities();
             let mut panel = match selected.len() {
@@ -475,6 +491,7 @@ impl OpenCADStudio {
                 Default::default()
             };
             panel.source_handles = new_handles;
+            panel.prop_vertex = prop_vertex;
             panel
         };
 
