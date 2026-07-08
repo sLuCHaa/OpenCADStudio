@@ -2,7 +2,7 @@ use acadrust::entities::{BoundaryEdge, Hatch};
 use glam::Vec3;
 
 use crate::command::EntityTransform;
-use crate::entities::common::{center_grip, edit_prop as edit, parse_f64, ro_prop as ro};
+use crate::entities::common::{center_grip, circle_grip, edit_prop as edit, parse_f64, ro_prop as ro};
 use crate::entities::traits::{FallbackTess, Grippable, PropertyEditable, Transformable};
 use crate::scene::model::object::{GripApply, GripDef, PropSection, PropValue, Property};
 use crate::scene::convert::tess_util::{arc_segments, arc_signed_span, wire_chord_tol, FallbackGeometry};
@@ -54,6 +54,49 @@ fn boundary_area(h: &Hatch) -> f64 {
         area += acc.abs() * 0.5;
     }
     area
+}
+
+/// Mean of every boundary edge point (OCS) — the centroid used to place the
+/// pattern-origin grip on the hatch body. `None` when there are no boundary
+/// points.
+fn boundary_centroid(h: &Hatch) -> Option<(f64, f64)> {
+    let mut sx = 0.0;
+    let mut sy = 0.0;
+    let mut n = 0.0;
+    let mut add = |x: f64, y: f64| {
+        sx += x;
+        sy += y;
+        n += 1.0;
+    };
+    for path in &h.paths {
+        for edge in &path.edges {
+            match edge {
+                BoundaryEdge::Polyline(p) => {
+                    for v in &p.vertices {
+                        add(v.x, v.y);
+                    }
+                }
+                BoundaryEdge::Line(l) => {
+                    add(l.start.x, l.start.y);
+                    add(l.end.x, l.end.y);
+                }
+                BoundaryEdge::CircularArc(a) => add(a.center.x, a.center.y),
+                BoundaryEdge::EllipticArc(e) => add(e.center.x, e.center.y),
+                BoundaryEdge::Spline(s) => {
+                    if !s.fit_points.is_empty() {
+                        for p in &s.fit_points {
+                            add(p.x, p.y);
+                        }
+                    } else {
+                        for p in &s.control_points {
+                            add(p.x, p.y);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (n > 0.0).then(|| (sx / n, sy / n))
 }
 
 /// Format a color for a read-only row (`ByLayer` / `ByBlock` / index / RGB).
@@ -120,58 +163,83 @@ fn properties(h: &Hatch) -> Vec<PropSection> {
     }
 
     // ── Hatch (pattern / solid) ────────────────────────────────────────────
-    let hatch_type = if h.is_solid { "Solid" } else { "Pattern" };
+    // "Type" = pattern definition source (Predefined / User Defined / Custom).
+    let type_row = Property {
+        label: "Type".into(),
+        field: "pattern_type_label",
+        value: PropValue::Choice {
+            selected: pattern_type.to_string(),
+            options: vec!["Predefined".into(), "User Defined".into(), "Custom".into()],
+        },
+    };
+    let pattern_name_row = Property {
+        label: "Pattern name".into(),
+        field: "pattern_name",
+        value: PropValue::HatchPatternChoice(h.pattern.name.clone()),
+    };
+    let associative_row = Property {
+        label: "Associative".into(),
+        field: "associative",
+        value: PropValue::BoolToggle {
+            field: "associative",
+            value: h.is_associative,
+        },
+    };
+    let double_row = Property {
+        label: "Double".into(),
+        field: "double",
+        value: PropValue::BoolToggle {
+            field: "double",
+            value: h.is_double,
+        },
+    };
+    let island_row = Property {
+        label: "Island detection style".into(),
+        field: "style",
+        value: PropValue::Choice {
+            selected: style.to_string(),
+            options: vec!["Normal".into(), "Outer".into(), "Ignore".into()],
+        },
+    };
+    let spacing_row = edit(
+        "Spacing",
+        "spacing",
+        h.pattern
+            .lines
+            .first()
+            .map(|l| l.offset.length())
+            .unwrap_or_default(),
+    );
+    // Pattern tiling origin: the base point the pattern lines are anchored to.
+    let (origin_x, origin_y) = h
+        .pattern
+        .lines
+        .first()
+        .map(|l| (l.base_point.x, l.base_point.y))
+        .unwrap_or((0.0, 0.0));
+
     vec![
         PropSection {
             title: "Pattern".into(),
             props: vec![
-                ro("Type", "pattern_type_label", hatch_type),
-                Property {
-                    label: "Pattern name".into(),
-                    field: "pattern_name",
-                    value: PropValue::HatchPatternChoice(h.pattern.name.clone()),
-                },
-                ro("Color", "color", color_str(h.common.color)),
-                ro("Background color", "background_color", String::new()),
-                ro(
-                    "Transparency",
-                    "transparency",
-                    format!("{}%", (h.common.transparency.as_percent() * 100.0).round() as i32),
-                ),
+                type_row,
+                pattern_name_row,
+                ro("Annotative", "annotative", String::new()),
                 edit("Angle", "pattern_angle", h.pattern_angle.to_degrees()),
                 edit("Scale", "pattern_scale", h.pattern_scale),
-                ro("Origin X", "origin_x", String::new()),
-                ro("Origin Y", "origin_y", String::new()),
-                ro("Annotative", "annotative", String::new()),
-                ro(
-                    "Associative",
-                    "associative",
-                    if h.is_associative { "Yes" } else { "No" },
-                ),
-                ro("Layer override", "layer_override", String::new()),
-                Property {
-                    label: "Double".into(),
-                    field: "double",
-                    value: PropValue::BoolToggle {
-                        field: "double",
-                        value: h.is_double,
-                    },
-                },
-                ro(
-                    "Spacing",
-                    "spacing",
-                    h.pattern
-                        .lines
-                        .first()
-                        .map(|l| format!("{:.4}", l.offset.length()))
-                        .unwrap_or_default(),
-                ),
+                edit("Origin X", "origin_x", origin_x),
+                edit("Origin Y", "origin_y", origin_y),
+                spacing_row,
                 ro("ISO pen width", "iso_pen_width", String::new()),
+                double_row,
+                associative_row,
+                island_row,
+                ro("Background color", "background_color", String::new()),
+                // ── Gradient info (read-only) ──────────────────────────────
                 ro("Gradient colors", "gradient_colors", g.colors.len().to_string()),
                 ro("Gradient tint", "gradient_tint", format!("{:.4}", g.color_tint)),
                 ro("Gradient color 1", "gradient_color_1", grad_c1),
                 ro("Gradient color 2", "gradient_color_2", grad_c2),
-                ro("Pattern type", "pattern_type", pattern_type),
             ],
         },
         PropSection {
@@ -182,24 +250,49 @@ fn properties(h: &Hatch) -> Vec<PropSection> {
                 ro("Cumulative area", "cumulative_area", format!("{:.4}", area)),
             ],
         },
-        PropSection {
-            title: "Misc".into(),
-            props: vec![
-                ro("Boundary retention", "boundary_retention", String::new()),
-                ro("Island detection style", "style", style),
-            ],
-        },
     ]
 }
 
 fn apply_geom_prop(h: &mut Hatch, field: &str, value: &str) {
-    if field == "double" {
-        h.is_double = if value == "toggle" {
-            !h.is_double
-        } else {
-            value == "true"
-        };
-        return;
+    use acadrust::entities::{HatchPatternType, HatchStyleType};
+    // Non-numeric fields (bool toggles / enum choices) — handled before the
+    // f64 parse below, which would otherwise reject their string values.
+    match field {
+        "double" => {
+            h.is_double = if value == "toggle" {
+                !h.is_double
+            } else {
+                value == "true"
+            };
+            return;
+        }
+        "associative" => {
+            h.is_associative = if value == "toggle" {
+                !h.is_associative
+            } else {
+                value == "true"
+            };
+            return;
+        }
+        "pattern_type_label" => {
+            h.pattern_type = match value {
+                "Predefined" => HatchPatternType::Predefined,
+                "User Defined" => HatchPatternType::UserDefined,
+                "Custom" => HatchPatternType::Custom,
+                _ => h.pattern_type,
+            };
+            return;
+        }
+        "style" => {
+            h.style = match value {
+                "Normal" => HatchStyleType::Normal,
+                "Outer" => HatchStyleType::Outer,
+                "Ignore" => HatchStyleType::Ignore,
+                _ => h.style,
+            };
+            return;
+        }
+        _ => {}
     }
     let Some(v) = parse_f64(value) else {
         return;
@@ -208,6 +301,41 @@ fn apply_geom_prop(h: &mut Hatch, field: &str, value: &str) {
         "pattern_angle" if h.gradient_color.enabled => h.gradient_color.angle = v.to_radians(),
         "pattern_angle" => h.pattern_angle = v.to_radians(),
         "pattern_scale" if v > 0.0 => h.pattern_scale = v,
+        // Scale every pattern line's offset so the first line's spacing = v,
+        // preserving the relative spacing between lines.
+        "spacing" if v > 0.0 => {
+            let cur = h
+                .pattern
+                .lines
+                .first()
+                .map(|l| l.offset.length())
+                .unwrap_or(0.0);
+            if cur > 1e-9 {
+                let s = v / cur;
+                for line in h.pattern.lines.iter_mut() {
+                    line.offset.x *= s;
+                    line.offset.y *= s;
+                }
+            }
+        }
+        // Move the pattern origin: shift every line's base point by the delta
+        // from the current origin (first line), preserving their relative offsets.
+        "origin_x" => {
+            if let Some(cur) = h.pattern.lines.first().map(|l| l.base_point.x) {
+                let d = v - cur;
+                for line in h.pattern.lines.iter_mut() {
+                    line.base_point.x += d;
+                }
+            }
+        }
+        "origin_y" => {
+            if let Some(cur) = h.pattern.lines.first().map(|l| l.base_point.y) {
+                let d = v - cur;
+                for line in h.pattern.lines.iter_mut() {
+                    line.base_point.y += d;
+                }
+            }
+        }
         "elevation" => h.elevation = v,
         _ => {}
     }
@@ -257,6 +385,15 @@ impl Grippable for Hatch {
         let elev = self.elevation;
         let mut out = Vec::new();
         let mut id = 0usize;
+        // Grip 0 = pattern-origin handle, shown at the hatch centroid (only when a
+        // pattern exists). Dragging it moves the pattern tiling origin; boundary
+        // grips follow from the next id.
+        if let Some(l0) = self.pattern.lines.first() {
+            let (gx, gy) =
+                boundary_centroid(self).unwrap_or((l0.base_point.x, l0.base_point.y));
+            out.push(circle_grip(id, glam::DVec3::new(gx, gy, elev)));
+            id += 1;
+        }
         for path in &self.paths {
             for edge in &path.edges {
                 match edge {
@@ -308,7 +445,6 @@ impl Grippable for Hatch {
 
     fn apply_grip(&mut self, grip_id: usize, apply: GripApply) {
         let elev = self.elevation as f32;
-        let mut id = 0usize;
 
         fn resolve(apply: &GripApply, cur: Vec3) -> (f64, f64) {
             let p = match apply {
@@ -316,6 +452,27 @@ impl Grippable for Hatch {
                 GripApply::Translate(d) => cur.as_dvec3() + *d,
             };
             (p.x, p.y)
+        }
+
+        let mut id = 0usize;
+        // Grip 0 = pattern origin: shift every line's base point by the delta,
+        // preserving relative offsets (mirrors the origin_x / origin_y edits).
+        if let Some((ox, oy)) = self
+            .pattern
+            .lines
+            .first()
+            .map(|l| (l.base_point.x, l.base_point.y))
+        {
+            if grip_id == id {
+                let (nx, ny) = resolve(&apply, Vec3::new(ox as f32, oy as f32, elev));
+                let (dx, dy) = (nx - ox, ny - oy);
+                for line in self.pattern.lines.iter_mut() {
+                    line.base_point.x += dx;
+                    line.base_point.y += dy;
+                }
+                return;
+            }
+            id += 1;
         }
 
         'outer: for path in &mut self.paths {

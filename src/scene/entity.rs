@@ -7,9 +7,9 @@ use super::*;
 /// angle_offset 0 (see `prebaked` in `hatch_model_from_dxf`). The world-space
 /// offset is rotated into the line's local frame so `pattern_segments` and the
 /// GPU shader, which rotate `(dx, dy)` back out by the family angle, reproduce
-/// the exact stored step. `x0/y0` stay 0: for an infinite line family the phase
-/// is not observable, and the stored base point is in the source (possibly
-/// block-local) frame anyway.
+/// the exact stored step. `x0/y0` are filled in by the caller (from the stored
+/// `base_point`, relative to `world_origin`) once the boundary anchor is known;
+/// they set the pattern origin, observable for dashed / offset patterns.
 fn family_from_stored_line(
     ln: &acadrust::entities::hatch::HatchPatternLine,
 ) -> crate::scene::model::hatch_model::PatFamily {
@@ -1268,7 +1268,7 @@ impl Scene {
             && !dxf.gradient_color.is_enabled()
             && !dxf.pattern.lines.is_empty();
 
-        let pattern = if dxf.gradient_color.is_enabled() {
+        let mut pattern = if dxf.gradient_color.is_enabled() {
             let color2 = dxf
                 .gradient_color
                 .colors
@@ -1356,6 +1356,21 @@ impl Scene {
         } else {
             [0.0, 0.0]
         };
+
+        // Anchor each prebaked family at its stored pattern origin (per-line
+        // `base_point`), expressed relative to `world_origin` so it shares the
+        // boundary's coordinate frame. Left at 0 the pattern tiles from the
+        // boundary centre instead: invisible for a solid infinite-line family
+        // but the wrong phase for dashed / offset patterns and for a user-moved
+        // origin (Origin X/Y property + origin grip).
+        if prebaked {
+            if let model::hatch_model::HatchPattern::Pattern(fams) = &mut pattern {
+                for (fam, ln) in fams.iter_mut().zip(dxf.pattern.lines.iter()) {
+                    fam.x0 = (ln.base_point.x - world_origin[0]) as f32;
+                    fam.y0 = (ln.base_point.y - world_origin[1]) as f32;
+                }
+            }
+        }
         let boundary_f32: Vec<[f32; 2]> = boundary
             .iter()
             .map(|&[x, y]| {

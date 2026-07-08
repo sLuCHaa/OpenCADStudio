@@ -597,6 +597,7 @@ impl canvas::Program<Message> for SelectionCanvas {
                     b.line_to(Point::new(sp.x - h, sp.y + h));
                     b.close();
                 }),
+                GripShape::Circle => canvas::Path::circle(Point::new(sp.x, sp.y), h),
             };
 
             if grip.is_hot {

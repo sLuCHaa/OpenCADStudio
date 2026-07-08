@@ -75,6 +75,7 @@ pub enum GripShape {
     Square,
     Rectangle,
     Triangle,
+    Circle,
 }
 
 /// Describes one grip point for an entity.

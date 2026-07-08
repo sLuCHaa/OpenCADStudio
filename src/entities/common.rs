@@ -141,6 +141,18 @@ pub fn center_grip(id: usize, world: glam::DVec3) -> GripDef {
     }
 }
 
+/// Circle grip — a round handle, flagged as a whole-object move. Used for
+/// special anchors like a hatch's pattern origin.
+pub fn circle_grip(id: usize, world: glam::DVec3) -> GripDef {
+    GripDef {
+        id,
+        world,
+        is_midpoint: true,
+        shape: GripShape::Circle,
+        dir: None,
+    }
+}
+
 /// Mid-segment stretch grip oriented along `dir` (the segment's in-plane
 /// world-XY direction). Drawn as a small rectangle elongated along the
 /// segment so the affordance reads as "stretch perpendicular".
