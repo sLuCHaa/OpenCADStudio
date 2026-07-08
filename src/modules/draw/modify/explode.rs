@@ -1060,6 +1060,15 @@ pub fn bake_dimension_blocks(doc: &mut CadDocument) {
 
         if let Some(EntityType::Dimension(d)) = doc.get_entity_mut(handle) {
             d.base_mut().block_name = name;
+            // The block we just baked holds the dimension graphics in absolute
+            // WCS, so the DWG group-12 insertion point (base.insertion_point)
+            // MUST be the origin. A reader that positions the *D block by that
+            // point (BricsCAD / ODA) otherwise draws it shifted by the offset,
+            // while OCS — which renders the block in place — shows it correctly.
+            // OCS's dimension commands seed insertion_point with the text
+            // anchor; reset it here so the saved dimension lands identically in
+            // every application. (#181)
+            d.base_mut().insertion_point = Vector3::new(0.0, 0.0, 0.0);
         }
     }
 }
@@ -1133,6 +1142,36 @@ mod tests {
             doc.block_records.len(),
             before,
             "a dimension that already owns a block must not be re-baked"
+        );
+    }
+
+    /// Baking a blockless dimension resets its group-12 insertion point to the
+    /// origin. OCS's commands seed it with the text anchor; left non-zero, a
+    /// reader that positions the absolute-WCS block by that point draws the
+    /// dimension shifted. Regression test for #181.
+    #[test]
+    fn bake_zeroes_insertion_point() {
+        let mut doc = CadDocument::new();
+
+        let mut d = DimensionLinear::new(Vector3::new(0.0, 0.0, 0.0), Vector3::new(10.0, 0.0, 0.0));
+        d.definition_point = Vector3::new(0.0, 5.0, 0.0);
+        d.base.text_middle_point = Vector3::new(5.0, 5.0, 0.0);
+        // Exactly what OCS-created dimensions carry: insertion == text anchor.
+        d.base.insertion_point = d.base.text_middle_point;
+        let handle = doc
+            .add_entity(EntityType::Dimension(Dimension::Linear(d)))
+            .unwrap();
+
+        bake_dimension_blocks(&mut doc);
+
+        let ins = match doc.get_entity(handle) {
+            Some(EntityType::Dimension(d)) => d.base().insertion_point,
+            _ => panic!("dimension missing"),
+        };
+        assert_eq!(
+            ins,
+            Vector3::new(0.0, 0.0, 0.0),
+            "baked dimension must carry a zero insertion point (#181)"
         );
     }
 
