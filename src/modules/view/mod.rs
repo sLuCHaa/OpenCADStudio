@@ -9,6 +9,7 @@ mod ortho;
 mod pan;
 mod persp;
 pub mod plot_window;
+pub mod quick_print;
 mod properties_palette;
 mod sheetset;
 mod solid;

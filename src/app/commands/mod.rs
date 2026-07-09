@@ -512,6 +512,8 @@ inventory::submit!(crate::command::CommandRegistration {
         "PROPS",
         "PSPACE",
         "PURGE",
+        "QP",
+        "QUICKPRINT",
         "QS",
         "QSAVE",
         "QSELECT",

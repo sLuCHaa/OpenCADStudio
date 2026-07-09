@@ -654,6 +654,13 @@ impl OpenCADStudio {
                 self.tabs[i].active_cmd = Some(Box::new(cmd));
             }
 
+            "QUICKPRINT" | "QP" => {
+                use crate::modules::view::quick_print::QuickPrintCommand;
+                let cmd = QuickPrintCommand::new();
+                self.command_line.push_info(&cmd.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(cmd));
+            }
+
             // Bare ZOOM enters the interactive window zoom (pick two corners) —
             // the common "zoom to a rectangle" action. The sub-keyword forms
             // (ZOOM EXTENTS / IN / OUT / …) are matched above.

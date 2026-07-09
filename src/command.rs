@@ -241,6 +241,8 @@ pub enum CmdResult {
     },
     /// Set the plot window on the active layout's PlotSettings.
     SetPlotWindow { p1: DVec3, p2: DVec3 },
+    /// Quick-print the bounding box of the given selected entities to a PDF.
+    QuickPrint(Vec<Handle>),
     /// Replace the text content of a Text/MText entity in-place.
     DdeditEntity { handle: Handle, new_text: String },
     /// Open the in-place editor (plain box or rich MText editor, per type) for

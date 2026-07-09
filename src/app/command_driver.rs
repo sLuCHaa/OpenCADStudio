@@ -1235,6 +1235,13 @@ impl OpenCADStudio {
                 self.tabs[i].scene.clear_preview_wire();
                 self.restore_pre_cmd_tangent();
             }
+            CmdResult::QuickPrint(handles) => {
+                self.tabs[i].active_cmd = None;
+                self.tabs[i].snap_result = None;
+                self.tabs[i].scene.clear_preview_wire();
+                self.restore_pre_cmd_tangent();
+                return self.on_quick_print_handles(handles);
+            }
             CmdResult::StretchEntities {
                 handles,
                 win_min,

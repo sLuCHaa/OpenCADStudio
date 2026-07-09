@@ -1221,6 +1221,89 @@ pub(super) fn on_open_file(&mut self) -> Task<Message> {
         )
     }
 
+    /// QUICKPRINT / QP — use the current selection's bounding box as the plot
+    /// window and export a PDF (drawing folder + name + timestamp) with the
+    /// active page setup, no dialog. Model space only. (#325)
+    pub(crate) fn on_quick_print_handles(
+        &mut self,
+        handles: Vec<acadrust::Handle>,
+    ) -> Task<Message> {
+        let i = self.active_tab;
+        if self.tabs[i].scene.current_layout != "Model" {
+            self.command_line
+                .push_error("Quick print works in model space.");
+            return Task::none();
+        }
+        let set: std::collections::HashSet<acadrust::Handle> = handles.into_iter().collect();
+        // Union the AABBs of the picked entities' wires (world XY), matched by
+        // each wire's handle.
+        let (x0, y0, x1, y1, any) = {
+            let scene = &self.tabs[i].scene;
+            let mut x0 = f32::INFINITY;
+            let mut y0 = f32::INFINITY;
+            let mut x1 = f32::NEG_INFINITY;
+            let mut y1 = f32::NEG_INFINITY;
+            let mut any = false;
+            for w in scene.entity_wires() {
+                let picked = crate::scene::Scene::handle_from_wire_name(&w.name)
+                    .is_some_and(|h| set.contains(&h));
+                if !picked {
+                    continue;
+                }
+                let [ax0, ay0, ax1, ay1] = w.aabb;
+                if ax0.is_finite() && ay0.is_finite() && ax1.is_finite() && ay1.is_finite() {
+                    x0 = x0.min(ax0);
+                    y0 = y0.min(ay0);
+                    x1 = x1.max(ax1);
+                    y1 = y1.max(ay1);
+                    any = true;
+                }
+            }
+            (x0, y0, x1, y1, any)
+        };
+        if !any {
+            self.command_line
+                .push_error("Selection has no printable geometry.");
+            return Task::none();
+        }
+        if !(x1 > x0 && y1 > y0) {
+            self.command_line
+                .push_error("Selection has no printable area.");
+            return Task::none();
+        }
+        // Small margin so the outermost strokes aren't clipped flush to the edge.
+        let mx = ((x1 - x0) * 0.02).max(0.0);
+        let my = ((y1 - y0) * 0.02).max(0.0);
+        self.plot_window = Some((
+            (x0 - mx) as f64,
+            (y0 - my) as f64,
+            (x1 + mx) as f64,
+            (y1 + my) as f64,
+        ));
+        let path = self.quick_print_path();
+        self.on_plot_window_export_path_some(path)
+    }
+
+    /// Auto output path for quick print: the drawing's folder + name + a
+    /// timestamp, falling back to the temp dir / "drawing" when unsaved.
+    fn quick_print_path(&self) -> std::path::PathBuf {
+        let i = self.active_tab;
+        let cur = self.tabs[i].current_path.as_deref();
+        let dir = cur
+            .and_then(|p| p.parent())
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(std::env::temp_dir);
+        let stem = cur
+            .and_then(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "drawing".into());
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        dir.join(format!("{stem}_{ts}.pdf"))
+    }
+
     /// Open the full Plot / Print dialog, seeding its state from the active
     /// layout's plot settings and the printers found on the system.
     pub(super) fn on_plot_dialog_open(&mut self) -> Task<Message> {
